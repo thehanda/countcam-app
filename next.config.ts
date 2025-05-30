@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // reactStrictMode: false, // Intentionally commented out or removed to allow default (true)
 };
 
 export default nextConfig;
