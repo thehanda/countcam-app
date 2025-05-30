@@ -1,26 +1,57 @@
+
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent, useEffect } from "react";
+import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2 } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
 import { format } from "date-fns";
-import Header from "@/components/layout/Header"; // Assuming Header is in src/components/layout/Header.tsx
+import Header from "@/components/layout/Header";
+import { useToast } from "@/hooks/use-toast";
+
 
 interface StatisticsData extends CountVisitorsOutput {
+  id: string; // For unique key in history
   timestamp: Date;
   videoFileName: string;
 }
 
+const LOCAL_STORAGE_KEY = "visitorCountHistory";
+
 export default function CountCamPage() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [processing, setProcessing] = useState<boolean>(false);
-  const [statistics, setStatistics] = useState<StatisticsData | null>(null);
+  const [currentStatistics, setCurrentStatistics] = useState<StatisticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [history, setHistory] = useState<StatisticsData[]>([]);
+  const { toast } = useToast();
+
+  // Load history from localStorage on component mount
+  useEffect(() => {
+    const storedHistory = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedHistory) {
+      try {
+        const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
+          ...item,
+          timestamp: new Date(item.timestamp), // Ensure timestamp is a Date object
+        }));
+        setHistory(parsedHistory);
+      } catch (e) {
+        console.error("Failed to parse history from localStorage", e);
+        localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear corrupted data
+        toast({
+          variant: "destructive",
+          title: "History Error",
+          description: "Could not load processing history. It might have been corrupted.",
+        });
+      }
+    }
+  }, [toast]);
 
   useEffect(() => {
     if (videoFile) {
@@ -36,19 +67,19 @@ export default function CountCamPage() {
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     setError(null);
-    setStatistics(null);
+    setCurrentStatistics(null);
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 50 * 1024 * 1024) { // 50MB limit for example
+      if (file.size > 50 * 1024 * 1024) { // 50MB limit
         setError("File is too large. Please upload a video under 50MB.");
         setVideoFile(null);
-        event.target.value = ""; // Reset file input
+        event.target.value = ""; 
         return;
       }
       if (!file.type.startsWith("video/")) {
         setError("Invalid file type. Please upload a video file.");
         setVideoFile(null);
-        event.target.value = ""; // Reset file input
+        event.target.value = "";
         return;
       }
       setVideoFile(file);
@@ -66,7 +97,7 @@ export default function CountCamPage() {
 
     setProcessing(true);
     setError(null);
-    setStatistics(null);
+    setCurrentStatistics(null);
 
     try {
       const videoDataUri = await new Promise<string>((resolve, reject) => {
@@ -77,19 +108,51 @@ export default function CountCamPage() {
       });
 
       const result = await countVisitors({ videoDataUri });
-      setStatistics({
+      
+      const newEntry: StatisticsData = {
         ...result,
+        id: Date.now().toString() + Math.random().toString(36).substring(2,9), // Simple unique ID
         timestamp: new Date(),
         videoFileName: videoFile.name,
+      };
+
+      setCurrentStatistics(newEntry);
+
+      // Update history
+      const updatedHistory = [newEntry, ...history];
+      setHistory(updatedHistory);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
+      toast({
+        title: "Processing Complete",
+        description: `Visitor count for ${newEntry.videoFileName} is ${newEntry.visitorCount}.`,
+        variant: "default"
       });
+
     } catch (err) {
       console.error("Error processing video:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during processing.";
       setError(`Failed to count visitors: ${errorMessage}. Please try a different video or check the video format.`);
+       toast({
+        variant: "destructive",
+        title: "Processing Error",
+        description: `Failed to count visitors. ${errorMessage}`,
+      });
     } finally {
       setProcessing(false);
     }
   };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    toast({
+      title: "History Cleared",
+      description: "All processing history has been removed.",
+    });
+  };
+  
+  const memoizedHistory = useMemo(() => history, [history]);
+
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -156,7 +219,7 @@ export default function CountCamPage() {
             </Alert>
           )}
 
-          {statistics && !processing && (
+          {currentStatistics && !processing && (
             <Card className="shadow-lg bg-gradient-to-br from-card to-secondary/30">
               <CardHeader>
                 <CardTitle className="text-2xl flex items-center text-accent-foreground gap-2">
@@ -164,7 +227,7 @@ export default function CountCamPage() {
                    Visitor Count Results
                 </CardTitle>
                 <CardDescription className="text-accent-foreground/80">
-                  Analysis complete for: <strong>{statistics.videoFileName}</strong>
+                  Analysis complete for: <strong>{currentStatistics.videoFileName}</strong>
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-lg">
@@ -173,25 +236,68 @@ export default function CountCamPage() {
                     <Users className="h-6 w-6 text-accent" />
                     <span className="font-medium text-foreground">Total Visitors:</span>
                   </div>
-                  <span className="font-bold text-3xl text-accent">{statistics.visitorCount}</span>
+                  <span className="font-bold text-3xl text-accent">{currentStatistics.visitorCount}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                    <div className="flex items-center gap-3">
                     <CalendarDays className="h-6 w-6 text-primary" />
                     <span className="font-medium text-foreground">Date Processed:</span>
                   </div>
-                  <span className="font-semibold text-primary">{format(statistics.timestamp, "PPP")}</span>
+                  <span className="font-semibold text-primary">{format(currentStatistics.timestamp, "PPP")}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                   <div className="flex items-center gap-3">
                     <Clock className="h-6 w-6 text-primary" />
                     <span className="font-medium text-foreground">Time Processed:</span>
                   </div>
-                  <span className="font-semibold text-primary">{format(statistics.timestamp, "p")}</span>
+                  <span className="font-semibold text-primary">{format(currentStatistics.timestamp, "p")}</span>
                 </div>
               </CardContent>
             </Card>
           )}
+
+          {memoizedHistory.length > 0 && (
+            <Card className="shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <ListChecks className="text-primary" />
+                    Processing History
+                  </CardTitle>
+                  <CardDescription>
+                    Previously processed video counts.
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleClearHistory} aria-label="Clear history">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear History
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Video File</TableHead>
+                      <TableHead className="text-center">Visitors</TableHead>
+                      <TableHead className="text-right">Date</TableHead>
+                      <TableHead className="text-right">Time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {memoizedHistory.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="font-medium truncate max-w-xs">{entry.videoFileName}</TableCell>
+                        <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
+                        <TableCell className="text-right">{format(entry.timestamp, "PPP")}</TableCell>
+                        <TableCell className="text-right">{format(entry.timestamp, "p")}</td>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
         </div>
       </main>
       <footer className="text-center py-4 border-t text-sm text-muted-foreground">
@@ -200,3 +306,7 @@ export default function CountCamPage() {
     </div>
   );
 }
+
+    
+
+    
