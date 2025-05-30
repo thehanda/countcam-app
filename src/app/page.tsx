@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo } from "react";
+import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -289,7 +289,7 @@ export default function CountCamPage() {
                         <TableCell className="font-medium truncate max-w-xs">{entry.videoFileName}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "PPP")}</TableCell>
-                        <TableCell className="text-right">{format(entry.timestamp, "p")}</td>
+                        <TableCell className="text-right">{format(entry.timestamp, "p")}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -306,7 +306,3 @@ export default function CountCamPage() {
     </div>
   );
 }
-
-    
-
-    
