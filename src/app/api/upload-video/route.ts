@@ -3,31 +3,55 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from '@/ai/flows/count-visitors';
 import { z } from 'zod';
 
-// Define the expected request body schema
-const ApiUploadSchema = z.object({
-  videoDataUri: z
-    .string()
-    .describe(
-      "A video, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
-    ),
-});
+// Helper function to convert ArrayBuffer to Base64 string using Node.js Buffer
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return Buffer.from(buffer).toString('base64');
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const parsedBody = ApiUploadSchema.safeParse(body);
+    const contentType = request.headers.get('content-type') || '';
+    let videoDataUri: string;
 
-    if (!parsedBody.success) {
-      return NextResponse.json({ error: 'Invalid request body.', details: parsedBody.error.format() }, { status: 400 });
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      const file = formData.get('videoFile') as File | null; // Expect 'videoFile' as the field name
+
+      if (!file) {
+        return NextResponse.json({ error: 'No video file found in form data. Please use field name "videoFile".' }, { status: 400 });
+      }
+
+      if (!file.type.startsWith('video/')) {
+        return NextResponse.json({ error: 'Uploaded file is not a video.' }, { status: 400 });
+      }
+      // Optional: Add file size validation here
+      // e.g., if (file.size > 50 * 1024 * 1024) { /* 50MB limit */ ... }
+
+
+      const arrayBuffer = await file.arrayBuffer();
+      const base64String = arrayBufferToBase64(arrayBuffer);
+      videoDataUri = `data:${file.type};base64,${base64String}`;
+
+    } else if (contentType.includes('application/json')) {
+      const body = await request.json();
+      const ApiUploadSchema = z.object({
+        videoDataUri: z.string().refine(s => s.startsWith('data:video/') && s.includes(';base64,'), {
+          message: "videoDataUri must be a valid video data URI with base64 encoding."
+        }),
+      });
+      const parsedBody = ApiUploadSchema.safeParse(body);
+
+      if (!parsedBody.success) {
+        return NextResponse.json({ error: 'Invalid JSON request body.', details: parsedBody.error.format() }, { status: 400 });
+      }
+      videoDataUri = parsedBody.data.videoDataUri;
+    } else {
+      return NextResponse.json({ error: 'Unsupported Content-Type. Please use multipart/form-data or application/json.' }, { status: 415 });
     }
 
     const input: CountVisitorsInput = {
-      videoDataUri: parsedBody.data.videoDataUri,
+      videoDataUri: videoDataUri,
     };
-
-    // It's good practice to also validate file size here if possible,
-    // though with data URIs it's a bit more complex than direct file uploads.
-    // The Genkit model will have its own limits. The frontend limits to 50MB.
 
     const result: CountVisitorsOutput = await countVisitors(input);
     return NextResponse.json(result, { status: 200 });
