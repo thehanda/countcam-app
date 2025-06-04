@@ -90,7 +90,6 @@ const countVisitorsFlow = ai.defineFlow(
       throw new Error(errorMessage);
     }
 
-    // Validate the structure of the output
     const parsedOutput = CountVisitorsOutputSchema.safeParse(structuredOutput);
     if (!parsedOutput.success) {
       throw new Error(
@@ -100,11 +99,11 @@ const countVisitorsFlow = ai.defineFlow(
       );
     }
     
-    // Ensure the countedDirection matches the input direction if provided
+    // Ensure the countedDirection matches the input direction
+    // This check is useful for debugging but we will trust the LLM to set it correctly based on its processing.
+    // If the LLM consistently fails to match, the prompt might need further refinement.
     if (parsedOutput.data.countedDirection !== input.direction) {
-      console.warn(`Warning: LLM's countedDirection (${parsedOutput.data.countedDirection}) does not match input direction (${input.direction}). Using input direction for consistency.`);
-       // Force the output's countedDirection to match the input direction.
-      // return { ...parsedOutput.data, countedDirection: input.direction };
+      console.warn(`Warning: LLM's countedDirection (${parsedOutput.data.countedDirection}) does not match input direction (${input.direction}). The LLM might have overridden the direction or there's a mismatch in interpretation.`);
     }
 
     return parsedOutput.data;

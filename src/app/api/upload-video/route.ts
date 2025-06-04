@@ -46,14 +46,21 @@ export async function POST(request: NextRequest) {
       
       videoFileName = file.name;
 
-      if (!file.type.startsWith('video/')) {
-        // Try to infer type if curl doesn't send it, but prioritize curl's type if available
-        const curlFileType = formData.get('videoFile;type') as string | null; // Check for type provided by curl like videoFile=@file.mp4;type=video/mp4
-        if (curlFileType && curlFileType.startsWith('video/')) {
-          // Use type from curl
-        } else if (!file.type.startsWith('video/')) { // Double check if native File.type is not video
-           return NextResponse.json({ error: 'Uploaded file is not a video. Ensure "type" is set to a video MIME type if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
-        }
+      // Prioritize type from curl if available (e.g., videoFile=@file.mp4;type=video/mp4)
+      let mimeType = file.type;
+      const fieldNameKeys = Array.from(formData.keys()) as string[];
+      const videoFileFieldKey = fieldNameKeys.find(key => key.startsWith('videoFile') && key.includes(';type='));
+      
+      if (videoFileFieldKey) {
+          const extractedType = videoFileFieldKey.split(';type=')[1];
+          if (extractedType.startsWith('video/')) {
+              mimeType = extractedType;
+          }
+      }
+
+
+      if (!mimeType || !mimeType.startsWith('video/')) {
+         return NextResponse.json({ error: 'Uploaded file is not a video or MIME type could not be determined as video. Ensure "type" is set for "videoFile" field if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
       }
       
       if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -62,22 +69,6 @@ export async function POST(request: NextRequest) {
 
       const arrayBuffer = await file.arrayBuffer();
       const base64String = arrayBufferToBase64(arrayBuffer);
-      let mimeType = file.type;
-      
-      // If curl provides type via fieldname (e.g., videoFile=@file.mp4;type=video/mp4), use that preferentially.
-      const fieldNameTypeMatch = (Array.from(formData.keys()) as string[]).find(key => key.startsWith('videoFile') && key.includes(';type='));
-      if (fieldNameTypeMatch) {
-        const extractedType = fieldNameTypeMatch.split(';type=')[1];
-        if (extractedType.startsWith('video/')) {
-          mimeType = extractedType;
-        }
-      }
-
-
-      if (!mimeType.startsWith('video/')) {
-           return NextResponse.json({ error: 'Uploaded file is not a video or MIME type could not be determined as video. Ensure "type" is set for "videoFile" field if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
-      }
-
       videoDataUri = `data:${mimeType};base64,${base64String}`;
 
     } else if (contentType.includes('application/json')) {

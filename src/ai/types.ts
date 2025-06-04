@@ -1,3 +1,4 @@
+
 /**
  * @fileOverview Shared types and enums for AI functionalities.
  */

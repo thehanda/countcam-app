@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, ArrowLeftRight, CornerRightDown, CornerRightUp } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
-import { type Direction } from "@/ai/types";
+import { type Direction } from "@/ai/types"; // Updated import
 import { format } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
