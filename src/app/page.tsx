@@ -1,21 +1,23 @@
 
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo, useRef } from "react";
+import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2 } from "lucide-react";
-import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, ArrowLeftRight, CornerRightDown, CornerRightUp } from "lucide-react";
+import { countVisitors, type CountVisitorsOutput, type Direction } from "@/ai/flows/count-visitors";
 import { format } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 
 
 interface StatisticsData extends CountVisitorsOutput {
-  id: string; // For unique key in history
+  id: string; 
   timestamp: Date;
   videoFileName: string;
 }
@@ -29,21 +31,21 @@ export default function CountCamPage() {
   const [error, setError] = useState<string | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [history, setHistory] = useState<StatisticsData[]>([]);
+  const [selectedDirection, setSelectedDirection] = useState<Direction>("entering");
   const { toast } = useToast();
 
-  // Load history from localStorage on component mount
   useEffect(() => {
     const storedHistory = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (storedHistory) {
       try {
         const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
           ...item,
-          timestamp: new Date(item.timestamp), // Ensure timestamp is a Date object
+          timestamp: new Date(item.timestamp), 
         }));
         setHistory(parsedHistory);
       } catch (e) {
         console.error("Failed to parse history from localStorage", e);
-        localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear corrupted data
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
         toast({
           variant: "destructive",
           title: "History Error",
@@ -70,7 +72,7 @@ export default function CountCamPage() {
     setCurrentStatistics(null);
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 50 * 1024 * 1024) { // 50MB limit
+      if (file.size > 50 * 1024 * 1024) { 
         setError("File is too large. Please upload a video under 50MB.");
         setVideoFile(null);
         event.target.value = ""; 
@@ -107,24 +109,23 @@ export default function CountCamPage() {
         reader.onerror = (error) => reject(error);
       });
 
-      const result = await countVisitors({ videoDataUri });
+      const result = await countVisitors({ videoDataUri, direction: selectedDirection });
       
       const newEntry: StatisticsData = {
         ...result,
-        id: Date.now().toString() + Math.random().toString(36).substring(2,9), // Simple unique ID
+        id: Date.now().toString() + Math.random().toString(36).substring(2,9),
         timestamp: new Date(),
         videoFileName: videoFile.name,
       };
 
       setCurrentStatistics(newEntry);
 
-      // Update history
       const updatedHistory = [newEntry, ...history];
       setHistory(updatedHistory);
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
       toast({
         title: "Processing Complete",
-        description: `Visitor count for ${newEntry.videoFileName} is ${newEntry.visitorCount}.`,
+        description: `Visitor count for ${newEntry.videoFileName} (${newEntry.countedDirection}) is ${newEntry.visitorCount}.`,
         variant: "default"
       });
 
@@ -153,6 +154,15 @@ export default function CountCamPage() {
   
   const memoizedHistory = useMemo(() => history, [history]);
 
+  const getDirectionLabel = (direction: Direction | undefined) => {
+    if (!direction) return "N/A";
+    switch (direction) {
+      case "entering": return "Entering";
+      case "exiting": return "Exiting";
+      case "both": return "Both Directions";
+      default: return direction;
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -166,12 +176,13 @@ export default function CountCamPage() {
                 Upload Video Footage
               </CardTitle>
               <CardDescription>
-                Select a video file to count the number of visitors. Max file size: 50MB.
+                Select a video file and counting direction. Max file size: 50MB.
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 <div className="space-y-2">
+                  <Label htmlFor="videoFile">Video File</Label>
                   <Input
                     id="videoFile"
                     type="file"
@@ -187,6 +198,39 @@ export default function CountCamPage() {
                     </div>
                   )}
                 </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Counting Direction</Label>
+                  <RadioGroup
+                    value={selectedDirection}
+                    onValueChange={(value) => setSelectedDirection(value as Direction)}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                    disabled={processing}
+                  >
+                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
+                      <RadioGroupItem value="entering" id="dir-entering" />
+                      <Label htmlFor="dir-entering" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
+                        <CornerRightDown className="w-5 h-5 text-green-500" />
+                        Entrants Only
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
+                      <RadioGroupItem value="exiting" id="dir-exiting" />
+                      <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
+                        <CornerRightUp className="w-5 h-5 text-red-500" />
+                        Exiting Only
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
+                      <RadioGroupItem value="both" id="dir-both" />
+                      <Label htmlFor="dir-both" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
+                        <ArrowLeftRight className="w-5 h-5 text-blue-500" />
+                        Both Directions
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
                 {filePreview && videoFile && !error && (
                   <div className="mt-4 border rounded-md overflow-hidden">
                      <video controls src={filePreview} className="w-full max-h-60 aspect-video object-contain bg-muted"></video>
@@ -231,12 +275,21 @@ export default function CountCamPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-lg">
-                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
+                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                   <div className="flex items-center gap-3">
                     <Users className="h-6 w-6 text-accent" />
                     <span className="font-medium text-foreground">Total Visitors:</span>
                   </div>
                   <span className="font-bold text-3xl text-accent">{currentStatistics.visitorCount}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
+                  <div className="flex items-center gap-3">
+                    {currentStatistics.countedDirection === 'entering' && <CornerRightDown className="h-6 w-6 text-primary" />}
+                    {currentStatistics.countedDirection === 'exiting' && <CornerRightUp className="h-6 w-6 text-primary" />}
+                    {currentStatistics.countedDirection === 'both' && <ArrowLeftRight className="h-6 w-6 text-primary" />}
+                    <span className="font-medium text-foreground">Counted Direction:</span>
+                  </div>
+                  <span className="font-semibold text-primary">{getDirectionLabel(currentStatistics.countedDirection)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                    <div className="flex items-center gap-3">
@@ -278,6 +331,7 @@ export default function CountCamPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Video File</TableHead>
+                      <TableHead className="text-center">Direction</TableHead>
                       <TableHead className="text-center">Visitors</TableHead>
                       <TableHead className="text-right">Date</TableHead>
                       <TableHead className="text-right">Time</TableHead>
@@ -286,7 +340,8 @@ export default function CountCamPage() {
                   <TableBody>
                     {memoizedHistory.map((entry) => (
                       <TableRow key={entry.id}>
-                        <TableCell className="font-medium truncate max-w-xs">{entry.videoFileName}</TableCell>
+                        <TableCell className="font-medium truncate max-w-[200px] sm:max-w-xs">{entry.videoFileName}</TableCell>
+                        <TableCell className="text-center">{getDirectionLabel(entry.countedDirection)}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "PPP")}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "p")}</TableCell>
