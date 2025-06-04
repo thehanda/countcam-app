@@ -1,6 +1,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from '@/ai/flows/count-visitors';
+import { DirectionEnum, type Direction } from '@/ai/types';
 import { z } from 'zod';
 
 // Helper function to convert ArrayBuffer to Base64 string using Node.js Buffer
@@ -11,53 +12,83 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
+const ApiJsonInputSchema = z.object({
+  videoDataUri: z.string().refine(s => s.startsWith('data:video/') && s.includes(';base64,'), {
+    message: "videoDataUri must be a valid video data URI with base64 encoding."
+  }),
+  direction: DirectionEnum,
+});
+
 export async function POST(request: NextRequest) {
   try {
     const contentType = request.headers.get('content-type') || '';
     let videoDataUri: string;
-    let videoFileName: string | undefined = 'uploaded_video'; // Default filename
+    let direction: Direction;
+    let videoFileName: string | undefined = 'uploaded_video'; 
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
-      const file = formData.get('videoFile') as File | null; // Expect 'videoFile' as the field name
+      const file = formData.get('videoFile') as File | null;
+      const directionString = formData.get('direction') as string | null;
 
       if (!file) {
         return NextResponse.json({ error: 'No video file found in form data. Please use field name "videoFile".' }, { status: 400 });
       }
+      if (!directionString) {
+        return NextResponse.json({ error: 'No direction specified in form data. Please use field name "direction".' }, { status: 400 });
+      }
+
+      const parsedDirection = DirectionEnum.safeParse(directionString);
+      if (!parsedDirection.success) {
+        return NextResponse.json({ error: `Invalid direction value: ${directionString}. Must be one of 'entering', 'exiting', 'both'.` , details: parsedDirection.error.format() }, { status: 400 });
+      }
+      direction = parsedDirection.data;
+      
       videoFileName = file.name;
 
       if (!file.type.startsWith('video/')) {
-        return NextResponse.json({ error: 'Uploaded file is not a video.' }, { status: 400 });
+        // Try to infer type if curl doesn't send it, but prioritize curl's type if available
+        const curlFileType = formData.get('videoFile;type') as string | null; // Check for type provided by curl like videoFile=@file.mp4;type=video/mp4
+        if (curlFileType && curlFileType.startsWith('video/')) {
+          // Use type from curl
+        } else if (!file.type.startsWith('video/')) { // Double check if native File.type is not video
+           return NextResponse.json({ error: 'Uploaded file is not a video. Ensure "type" is set to a video MIME type if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
+        }
       }
       
       if (file.size > MAX_FILE_SIZE_BYTES) {
-        return NextResponse.json({ error: `File is too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.` }, { status: 413 }); // 413 Payload Too Large
+        return NextResponse.json({ error: `File is too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.` }, { status: 413 });
       }
 
       const arrayBuffer = await file.arrayBuffer();
       const base64String = arrayBufferToBase64(arrayBuffer);
-      videoDataUri = `data:${file.type};base64,${base64String}`;
+      let mimeType = file.type;
+      
+      // If curl provides type via fieldname (e.g., videoFile=@file.mp4;type=video/mp4), use that preferentially.
+      const fieldNameTypeMatch = (Array.from(formData.keys()) as string[]).find(key => key.startsWith('videoFile') && key.includes(';type='));
+      if (fieldNameTypeMatch) {
+        const extractedType = fieldNameTypeMatch.split(';type=')[1];
+        if (extractedType.startsWith('video/')) {
+          mimeType = extractedType;
+        }
+      }
+
+
+      if (!mimeType.startsWith('video/')) {
+           return NextResponse.json({ error: 'Uploaded file is not a video or MIME type could not be determined as video. Ensure "type" is set for "videoFile" field if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
+      }
+
+      videoDataUri = `data:${mimeType};base64,${base64String}`;
 
     } else if (contentType.includes('application/json')) {
       const body = await request.json();
-      const ApiUploadSchema = z.object({
-        videoDataUri: z.string().refine(s => s.startsWith('data:video/') && s.includes(';base64,'), {
-          message: "videoDataUri must be a valid video data URI with base64 encoding."
-        }),
-        // Optionally, you could require a filename in JSON requests too if needed
-        // videoFileName: z.string().optional(), 
-      });
-      const parsedBody = ApiUploadSchema.safeParse(body);
+      const parsedBody = ApiJsonInputSchema.safeParse(body);
 
       if (!parsedBody.success) {
         return NextResponse.json({ error: 'Invalid JSON request body.', details: parsedBody.error.format() }, { status: 400 });
       }
       videoDataUri = parsedBody.data.videoDataUri;
-      // videoFileName = parsedBody.data.videoFileName || videoFileName; // If filename passed in JSON
-
-      // Note: For JSON requests with data URI, size check is harder without decoding.
-      // The primary size check is for multipart/form-data.
-      // If large JSON payloads are a concern, more complex validation would be needed.
+      direction = parsedBody.data.direction;
 
     } else {
       return NextResponse.json({ error: 'Unsupported Content-Type. Please use multipart/form-data or application/json.' }, { status: 415 });
@@ -65,12 +96,11 @@ export async function POST(request: NextRequest) {
 
     const input: CountVisitorsInput = {
       videoDataUri: videoDataUri,
-      // videoFileName: videoFileName // If you decide to pass filename to the flow
+      direction: direction,
     };
 
     const result: CountVisitorsOutput = await countVisitors(input);
-    // You might want to include the filename in the response if it's useful
-    return NextResponse.json({ ...result /* , videoFileName */ }, { status: 200 });
+    return NextResponse.json({ ...result, videoFileName }, { status: 200 });
 
   } catch (error: any) {
     console.error('API Error processing video:', error);
@@ -80,6 +110,6 @@ export async function POST(request: NextRequest) {
     } else if (error.message) {
         errorMessage = error.message;
     }
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: errorMessage, details: error instanceof z.ZodError ? error.format() : undefined }, { status: 500 });
   }
 }

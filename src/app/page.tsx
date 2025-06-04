@@ -10,7 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, ArrowLeftRight, CornerRightDown, CornerRightUp } from "lucide-react";
-import { countVisitors, type CountVisitorsOutput, type Direction } from "@/ai/flows/count-visitors";
+import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
+import { type Direction } from "@/ai/types";
 import { format } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
@@ -125,7 +126,7 @@ export default function CountCamPage() {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
       toast({
         title: "Processing Complete",
-        description: `Visitor count for ${newEntry.videoFileName} (${newEntry.countedDirection}) is ${newEntry.visitorCount}.`,
+        description: `Visitor count for ${newEntry.videoFileName} (${getDirectionLabel(newEntry.countedDirection)}) is ${newEntry.visitorCount}.`,
         variant: "default"
       });
 

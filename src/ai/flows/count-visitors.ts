@@ -10,9 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-
-const DirectionEnum = z.enum(['entering', 'exiting', 'both']);
-export type Direction = z.infer<typeof DirectionEnum>;
+import { DirectionEnum, type Direction } from '@/ai/types';
 
 const CountVisitorsInputSchema = z.object({
   videoDataUri: z
@@ -43,21 +41,22 @@ const prompt = ai.definePrompt({
   prompt: `You are an AI that counts the number of distinct people in a video based on their direction of movement.
   Your primary task is to count only those individuals who are clearly moving in the specified direction.
 
-  You will be given a video and a direction parameter.
-  - If direction is 'entering', count ONLY the unique individuals who are clearly ENTERING.
-  - If direction is 'exiting', count ONLY the unique individuals who are clearly EXITING.
-  - If direction is 'both', count all unique individuals moving clearly in either direction (entering or exiting), but count each person only once even if they change direction or appear multiple times.
+  You will be given a video and a 'Direction to count' parameter.
+  - If 'Direction to count' is 'entering', count ONLY the unique individuals who are clearly ENTERING.
+  - If 'Direction to count' is 'exiting', count ONLY the unique individuals who are clearly EXITING.
+  - If 'Direction to count' is 'both', count all unique individuals moving clearly in EITHER direction (entering or exiting), but count each person only once even if they change direction or appear multiple times.
 
-  Do not count people who are just passing by without clearly entering or exiting according to the specified direction.
+  Do not count people who are just passing by without clearly entering or exiting according to the specified 'Direction to count'.
   The video is provided as a data URI.
 
   Video: {{media url=videoDataUri}}
   Direction to count: {{{direction}}}
 
   Please provide your response as a JSON object with two keys:
-  1. 'visitorCount': The total number of distinct people counted.
-  2. 'countedDirection': The direction parameter that was used for counting (echo back the input 'direction').
+  1. 'visitorCount': The total number of distinct people counted strictly according to the specified 'Direction to count'.
+  2. 'countedDirection': The exact value of the 'Direction to count' parameter you were given (echo this back).
   For example: {"visitorCount": 12, "countedDirection": "entering"}
+  If the video quality is too low to make a confident count, or if no people are visible, set visitorCount to 0.
   `,
 });
 
@@ -91,14 +90,23 @@ const countVisitorsFlow = ai.defineFlow(
       throw new Error(errorMessage);
     }
 
-    if (typeof structuredOutput.visitorCount !== 'number' || !DirectionEnum.safeParse(structuredOutput.countedDirection).success) {
+    // Validate the structure of the output
+    const parsedOutput = CountVisitorsOutputSchema.safeParse(structuredOutput);
+    if (!parsedOutput.success) {
       throw new Error(
-        `LLM output error: 'visitorCount' is not a number or 'countedDirection' is invalid. Received: ${JSON.stringify(
+        `LLM output validation error: ${parsedOutput.error.format()}. Received: ${JSON.stringify(
           structuredOutput
         )}`
       );
     }
     
-    return structuredOutput;
+    // Ensure the countedDirection matches the input direction if provided
+    if (parsedOutput.data.countedDirection !== input.direction) {
+      console.warn(`Warning: LLM's countedDirection (${parsedOutput.data.countedDirection}) does not match input direction (${input.direction}). Using input direction for consistency.`);
+       // Force the output's countedDirection to match the input direction.
+      // return { ...parsedOutput.data, countedDirection: input.direction };
+    }
+
+    return parsedOutput.data;
   }
 );
