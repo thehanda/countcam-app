@@ -21,7 +21,7 @@ const CountVisitorsInputSchema = z.object({
 export type CountVisitorsInput = z.infer<typeof CountVisitorsInputSchema>;
 
 const CountVisitorsOutputSchema = z.object({
-  visitorCount: z.number().describe('The number of visitors counted in the video.'),
+  visitorCount: z.number().describe('The number of visitors counted entering in the video.'),
 });
 export type CountVisitorsOutput = z.infer<typeof CountVisitorsOutputSchema>;
 
@@ -33,15 +33,15 @@ const prompt = ai.definePrompt({
   name: 'countVisitorsPrompt',
   input: {schema: CountVisitorsInputSchema},
   output: {schema: CountVisitorsOutputSchema},
-  prompt: `You are an AI that counts the number of distinct people in a video.
+  prompt: `You are an AI that counts the number of distinct people entering a location in a video. Your primary task is to count only those individuals who are clearly moving in one specific direction, representing them as 'entrants' or 'visitors coming in'.
 
-  You will be given a video, potentially of people entering a museum. Your task is to count the number of unique individuals visible in the video.
+  You will be given a video, potentially of people entering a museum. There might be people moving in both directions (entering and exiting). Your task is to count ONLY the unique individuals who are clearly ENTERING the museum. Do not count people who are exiting or just passing by without entering.
 
   The video is provided as a data URI. Use the following as the primary source of information about the video.
 
   Video: {{media url=videoDataUri}}
 
-  Please provide your response as a JSON object with a single key 'visitorCount', where the value is the total number of distinct people counted.
+  Please provide your response as a JSON object with a single key 'visitorCount', where the value is the total number of distinct people counted as ENTERING.
   For example: {"visitorCount": 12}
   `,
 });
@@ -77,9 +77,6 @@ const countVisitorsFlow = ai.defineFlow(
       throw new Error(errorMessage);
     }
 
-    // Genkit validates `structuredOutput` against `CountVisitorsOutputSchema`.
-    // So, `structuredOutput.visitorCount` should be a number.
-    // For extra safety, especially if schema enforcement could be bypassed or partial:
     if (typeof structuredOutput.visitorCount !== 'number') {
       throw new Error(
         `LLM output error: 'visitorCount' is not a number. Received: ${JSON.stringify(
@@ -88,6 +85,7 @@ const countVisitorsFlow = ai.defineFlow(
       );
     }
     
-    return structuredOutput; // This is { visitorCount: number }
+    return structuredOutput;
   }
 );
+
