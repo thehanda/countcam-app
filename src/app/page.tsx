@@ -11,14 +11,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, ArrowLeftRight, CornerRightDown, CornerRightUp } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
-import { type Direction } from "@/ai/types"; // Updated import
+import { type Direction } from "@/ai/types";
 import { format } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 
 
 interface StatisticsData extends CountVisitorsOutput {
-  id: string; 
+  id: string;
   timestamp: Date;
   videoFileName: string;
 }
@@ -41,7 +41,7 @@ export default function CountCamPage() {
       try {
         const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
           ...item,
-          timestamp: new Date(item.timestamp), 
+          timestamp: new Date(item.timestamp),
         }));
         setHistory(parsedHistory);
       } catch (e) {
@@ -73,10 +73,10 @@ export default function CountCamPage() {
     setCurrentStatistics(null);
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 50 * 1024 * 1024) { 
+      if (file.size > 50 * 1024 * 1024) {
         setError("File is too large. Please upload a video under 50MB.");
         setVideoFile(null);
-        event.target.value = ""; 
+        event.target.value = "";
         return;
       }
       if (!file.type.startsWith("video/")) {
@@ -111,7 +111,7 @@ export default function CountCamPage() {
       });
 
       const result = await countVisitors({ videoDataUri, direction: selectedDirection });
-      
+
       const newEntry: StatisticsData = {
         ...result,
         id: Date.now().toString() + Math.random().toString(36).substring(2,9),
@@ -152,15 +152,15 @@ export default function CountCamPage() {
       description: "All processing history has been removed.",
     });
   };
-  
+
   const memoizedHistory = useMemo(() => history, [history]);
 
   const getDirectionLabel = (direction: Direction | undefined) => {
     if (!direction) return "N/A";
     switch (direction) {
-      case "entering": return "Entering";
-      case "exiting": return "Exiting";
-      case "both": return "Both Directions";
+      case "entering": return "R→L";
+      case "exiting": return "L→R";
+      case "both": return "R→L + L→R";
       default: return direction;
     }
   };
@@ -212,21 +212,21 @@ export default function CountCamPage() {
                       <RadioGroupItem value="entering" id="dir-entering" />
                       <Label htmlFor="dir-entering" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <CornerRightDown className="w-5 h-5 text-green-500" />
-                        Entrants Only
+                        R→L
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
                       <RadioGroupItem value="exiting" id="dir-exiting" />
                       <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <CornerRightUp className="w-5 h-5 text-red-500" />
-                        Exiting Only
+                        L→R
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
                       <RadioGroupItem value="both" id="dir-both" />
                       <Label htmlFor="dir-both" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <ArrowLeftRight className="w-5 h-5 text-blue-500" />
-                        Both Directions
+                        R→L + L→R
                       </Label>
                     </div>
                   </RadioGroup>
