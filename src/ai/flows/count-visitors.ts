@@ -43,10 +43,11 @@ const prompt = ai.definePrompt({
 Follow these instructions meticulously:
 
 1.  **Identify Individuals:**
-    *   Count only clearly identifiable human figures. Consider a person identifiable if their head and torso are largely visible for a sustained period.
+    *   Count only clearly identifiable human figures. A person is considered identifiable if their head and a significant portion of their torso are visible and their movement path is clear for a sustained period.
     *   Distinguish individuals even if they are partially obscured temporarily (e.g., by other people or objects), provided they re-emerge clearly and can be reasonably identified as the same person.
     *   Do NOT count animals, inanimate objects, or indistinct shadows as people.
     *   Focus on adults and children who are walking independently. Do not count infants carried by others unless specifically asked.
+    *   If a person is stationary for most of their appearance, do not count them unless their entry or exit path is very clear.
 
 2.  **Directional Movement & Counting Logic:**
     *   If 'Direction to count' is 'entering': Count ONLY unique individuals who are unambiguously and continuously moving in the 'entering' direction across a defined threshold or significant portion of the view.
@@ -56,12 +57,12 @@ Follow these instructions meticulously:
 3.  **What to Exclude (Non-counts):**
     *   Do NOT count individuals who are stationary or loitering for the majority of their appearance without clear, sustained directional movement.
     *   Do NOT count individuals who only briefly appear at the very edge of the frame or whose movement path is too short to confidently determine direction.
-    *   Do NOT count individuals whose movement direction is highly ambiguous or erratic.
-    *   Avoid double-counting. If you have already counted an individual, do not count them again even if they reappear after a short absence, provided you are reasonably sure it's the same person.
+    *   Do NOT count individuals whose movement direction is highly ambiguous or erratic (e.g., frequently changing direction in the middle of the frame).
+    *   Avoid double-counting. If you have already counted an individual, do not count them again even if they reappear after a short absence, provided you are reasonably sure it's the same person. The goal is to count unique individuals passing through.
 
 4.  **Handling Video Quality & Ambiguity:**
     *   If the video quality is too low (e.g., very blurry, severe motion blur, poor lighting, extreme distance, heavy obstructions) to make a confident count for a significant portion of the video, or if no people are clearly visible and moving as specified, set 'visitorCount' to 0.
-    *   Strive for accuracy. If there is significant doubt about whether an individual meets the criteria or about their direction, it is better to be conservative and NOT count them if it compromises overall precision. Precision is more important than capturing every potential person.
+    *   Strive for accuracy. If there is significant doubt about whether an individual meets the criteria or about their direction, it is better to be conservative and NOT count them if it compromises overall precision. Precision is more important than capturing every potential person. If a person's path is too complex or unclear, err on the side of not counting.
 
 5.  **Uniqueness and Tracking (Especially for 'both'):**
     *   Crucially, for 'both' directions, count each distinct person only ONCE. Your ability to track unique individuals across the video, even if they temporarily leave and re-enter the frame or change directions, is key. If a person enters, then exits, they count as one for 'both'.
@@ -87,7 +88,7 @@ const countVisitorsFlow = ai.defineFlow(
     outputSchema: CountVisitorsOutputSchema,
   },
   async input => {
-    const response = await prompt(input);
+    const response = await prompt(input, { model: 'googleai/gemini-1.5-pro-latest' }); // Changed model here
     const structuredOutput = response.output;
 
     if (!structuredOutput) {
@@ -126,6 +127,3 @@ const countVisitorsFlow = ai.defineFlow(
     return parsedOutput.data;
   }
 );
-
-
-    
