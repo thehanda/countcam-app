@@ -46,25 +46,25 @@ Follow these instructions meticulously:
     *   Count only clearly identifiable human figures. A person is considered identifiable if their head and a significant portion of their torso are visible and their movement path is clear for a sustained period.
     *   Focus on adults and children who are walking independently. Do not count infants carried by others.
     *   Distinguish individuals even if they are partially obscured temporarily (e.g., by other people or static objects), provided they re-emerge clearly and can be reasonably identified as the same person.
-    *   **Crucially, differentiate people from other moving objects.** For example, if cars, bicycles, or animals are visible in the background or foreground, they should NOT be counted as people, even if their movement path is similar. Pay close attention to the shape, size, and movement characteristics typical of humans versus vehicles or animals.
-    *   **Distance and Clarity:** Do NOT count individuals who are very far in the distance, appear very small, or are too blurry/pixelated to be confidently identified as a distinct person making a clear directional movement. If a figure is a mere speck or a vague shape, it should be excluded.
+    *   **Crucially, differentiate people from other moving objects.** If non-human moving objects are visible, make your best effort to exclude them from the count.
+    *   **Distance and Clarity:** Do NOT count individuals who are very far in the distance, appear very small, or are too blurry/pixelated to be confidently identified as a distinct person making a clear directional movement.
 
 2.  **Directional Movement & Counting Logic (Focus: '{{direction}}'):**
     *   If 'Direction to count' is 'entering': Count ONLY unique individuals who are unambiguously and continuously moving in the 'entering' direction across a defined threshold or significant portion of the view relevant to an entry point.
     *   If 'Direction to count' is 'exiting': Count ONLY unique individuals who are unambiguously and continuously moving in the 'exiting' direction across a defined threshold or significant portion of the view relevant to an exit point.
-    *   Each person should be counted only ONCE within their specified directional pass for this specific counting task. For example, if counting 'entering', a person entering is counted once. If they later exit while you are still focused on an 'entering' count, that exit is ignored for this task.
+    *   Each person should be counted only ONCE within their specified directional pass for this specific counting task.
 
 3.  **What to Exclude (Non-counts for the specified '{{direction}}'):**
-    *   Do NOT count individuals who are stationary or loitering for the majority of their appearance without clear, sustained directional movement relevant to the specified direction.
-    *   Do NOT count individuals who only briefly appear at the very edge of the frame or whose movement path is too short or erratic to confidently determine direction.
-    *   Do NOT count individuals whose movement direction is highly ambiguous (e.g., frequently changing direction in the middle of the frame relative to the specified direction).
+    *   Do NOT count individuals who are stationary or loitering.
+    *   Do NOT count individuals whose movement path is too short or erratic.
+    *   Do NOT count individuals whose movement direction is highly ambiguous.
     *   Avoid double-counting for the *specified direction*.
-    *   **Reiterate: Ignore non-human moving objects like cars, buses, motorcycles, bicycles, animals, etc.**
-    *   **Reiterate: Ignore very distant, small, or blurry figures whose identity as a person and direction of movement are not absolutely clear.**
+    *   **Reiterate: Ignore non-human moving objects if distinguishable.**
+    *   **Reiterate: Ignore very distant, small, or blurry figures.**
 
 4.  **Handling Video Quality & Ambiguity:**
-    *   If the video quality is too low (e.g., very blurry, severe motion blur, poor lighting, extreme distance for most relevant figures, heavy obstructions) to make a confident count for a significant portion of the video, or if no people are clearly visible and moving as specified, set 'visitorCount' to 0.
-    *   Strive for accuracy. If there is significant doubt about whether an individual meets the criteria or about their direction (especially due to distance, background clutter, or brief appearance), it is better to be conservative and NOT count them if it compromises overall precision. Precision is more important than capturing every potential person.
+    *   If video quality is too low for a confident count for the '{{{direction}}}' task, or if no people are clearly visible and moving as specified, set 'visitorCount' to 0.
+    *   Strive for accuracy. If there is significant doubt, it is better to be conservative and NOT count.
 
 Video Input:
 Video: {{media url=videoDataUri}}
@@ -89,8 +89,6 @@ const countVisitorsFlow = ai.defineFlow(
   },
   async input => {
     // Using default model (gemini-2.0-flash via src/ai/genkit.ts)
-    // To use a different model for this specific flow, you can specify it here:
-    // const response = await prompt(input, {model: 'googleai/gemini-1.5-pro-latest'});
     const response = await prompt(input);
     const structuredOutput = response.output;
 
