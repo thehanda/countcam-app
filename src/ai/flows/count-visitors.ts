@@ -88,7 +88,8 @@ const countVisitorsFlow = ai.defineFlow(
     outputSchema: CountVisitorsOutputSchema,
   },
   async input => {
-    const response = await prompt(input, { model: 'googleai/gemini-1.5-pro-latest' }); // Changed model here
+    // Reverted to default model (gemini-2.0-flash via src/ai/genkit.ts)
+    const response = await prompt(input); 
     const structuredOutput = response.output;
 
     if (!structuredOutput) {
