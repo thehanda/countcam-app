@@ -1,7 +1,7 @@
 
 'use server';
 /**
- * @fileOverview Counts the number of visitors in a video based on their direction of movement.
+ * @fileOverview Counts the number of visitors in a video based on their direction of movement (entering or exiting).
  *
  * - countVisitors - A function that handles the visitor counting process.
  * - CountVisitorsInput - The input type for the countVisitors function.
@@ -19,14 +19,14 @@ const CountVisitorsInputSchema = z.object({
       "A video of people, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
   direction: DirectionEnum.describe(
-    "The direction of movement to count: 'entering', 'exiting', or 'both'."
+    "The direction of movement to count: 'entering' or 'exiting'."
   ),
 });
 export type CountVisitorsInput = z.infer<typeof CountVisitorsInputSchema>;
 
 const CountVisitorsOutputSchema = z.object({
   visitorCount: z.number().describe('The number of visitors counted based on the specified direction in the video.'),
-  countedDirection: DirectionEnum.describe("The direction that was used for counting."),
+  countedDirection: DirectionEnum.describe("The direction that was used for counting ('entering' or 'exiting')."),
 });
 export type CountVisitorsOutput = z.infer<typeof CountVisitorsOutputSchema>;
 
@@ -38,7 +38,7 @@ const prompt = ai.definePrompt({
   name: 'countVisitorsPrompt',
   input: {schema: CountVisitorsInputSchema},
   output: {schema: CountVisitorsOutputSchema},
-  prompt: `You are an advanced AI specializing in accurately counting distinct individuals in video footage based on their movement direction. Your primary goal is to provide the most precise count possible.
+  prompt: `You are an advanced AI specializing in accurately counting distinct individuals in video footage based on their movement direction. Your primary goal is to provide the most precise count possible for 'entering' or 'exiting' movements.
 
 Follow these instructions meticulously:
 
@@ -52,20 +52,17 @@ Follow these instructions meticulously:
 2.  **Directional Movement & Counting Logic:**
     *   If 'Direction to count' is 'entering': Count ONLY unique individuals who are unambiguously and continuously moving in the 'entering' direction across a defined threshold or significant portion of the view.
     *   If 'Direction to count' is 'exiting': Count ONLY unique individuals who are unambiguously and continuously moving in the 'exiting' direction across a defined threshold or significant portion of the view.
-    *   If 'Direction to count' is 'both': Count all unique individuals moving clearly and continuously in EITHER direction (entering or exiting) across a defined threshold. Each person should be counted only ONCE. If a person enters and later exits (or vice-versa) within the video, they are counted as one individual for the 'both' scenario. Attempt to recognize an individual if they reappear.
+    *   Each person should be counted only ONCE within their specified directional pass. For example, if counting 'entering', a person entering is counted once. If they later exit while you are still focused on an 'entering' count, that exit is ignored for the current task.
 
 3.  **What to Exclude (Non-counts):**
     *   Do NOT count individuals who are stationary or loitering for the majority of their appearance without clear, sustained directional movement.
     *   Do NOT count individuals who only briefly appear at the very edge of the frame or whose movement path is too short to confidently determine direction.
-    *   Do NOT count individuals whose movement direction is highly ambiguous or erratic (e.g., frequently changing direction in the middle of the frame).
-    *   Avoid double-counting. If you have already counted an individual, do not count them again even if they reappear after a short absence, provided you are reasonably sure it's the same person. The goal is to count unique individuals passing through.
+    *   Do NOT count individuals whose movement direction is highly ambiguous or erratic (e.g., frequently changing direction in the middle of the frame relative to the specified direction).
+    *   Avoid double-counting for the *specified direction*.
 
 4.  **Handling Video Quality & Ambiguity:**
     *   If the video quality is too low (e.g., very blurry, severe motion blur, poor lighting, extreme distance, heavy obstructions) to make a confident count for a significant portion of the video, or if no people are clearly visible and moving as specified, set 'visitorCount' to 0.
     *   Strive for accuracy. If there is significant doubt about whether an individual meets the criteria or about their direction, it is better to be conservative and NOT count them if it compromises overall precision. Precision is more important than capturing every potential person. If a person's path is too complex or unclear, err on the side of not counting.
-
-5.  **Uniqueness and Tracking (Especially for 'both'):**
-    *   Crucially, for 'both' directions, count each distinct person only ONCE. Your ability to track unique individuals across the video, even if they temporarily leave and re-enter the frame or change directions, is key. If a person enters, then exits, they count as one for 'both'.
 
 Video Input:
 Video: {{media url=videoDataUri}}
@@ -76,7 +73,8 @@ Please provide your response as a JSON object with two keys:
 1.  'visitorCount': The total number of distinct people counted, strictly adhering to ALL the above instructions and the specified 'Direction to count'.
 2.  'countedDirection': The exact value of the 'Direction to count' parameter you were given (echo this back).
 
-Example: {"visitorCount": 12, "countedDirection": "entering"}
+Example for entering: {"visitorCount": 12, "countedDirection": "entering"}
+Example for exiting: {"visitorCount": 5, "countedDirection": "exiting"}
 If no individuals meet the criteria, or if the video quality is insufficient, output: {"visitorCount": 0, "countedDirection": "your_input_direction_here"}
 `,
 });
@@ -88,8 +86,8 @@ const countVisitorsFlow = ai.defineFlow(
     outputSchema: CountVisitorsOutputSchema,
   },
   async input => {
-    // Reverted to default model (gemini-2.0-flash via src/ai/genkit.ts)
-    const response = await prompt(input); 
+    // Using default model (gemini-2.0-flash via src/ai/genkit.ts)
+    const response = await prompt(input);
     const structuredOutput = response.output;
 
     if (!structuredOutput) {

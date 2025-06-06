@@ -4,5 +4,6 @@
  */
 import { z } from 'zod';
 
-export const DirectionEnum = z.enum(['entering', 'exiting', 'both']);
+export const DirectionEnum = z.enum(['entering', 'exiting']);
 export type Direction = z.infer<typeof DirectionEnum>;
+

@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
       const parsedDirection = DirectionEnum.safeParse(directionString);
       if (!parsedDirection.success) {
-        return NextResponse.json({ error: `Invalid direction value: ${directionString}. Must be one of 'entering', 'exiting', 'both'.` , details: parsedDirection.error.format() }, { status: 400 });
+        return NextResponse.json({ error: `Invalid direction value: ${directionString}. Must be one of 'entering', 'exiting'.` , details: parsedDirection.error.format() }, { status: 400 });
       }
       direction = parsedDirection.data;
       

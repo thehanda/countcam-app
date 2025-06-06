@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, ArrowLeftRight, CornerRightDown, CornerRightUp } from "lucide-react";
+import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
 import { type Direction } from "@/ai/types";
 import { format } from "date-fns";
@@ -155,12 +155,12 @@ export default function CountCamPage() {
 
   const memoizedHistory = useMemo(() => history, [history]);
 
-  const getDirectionLabel = (direction: Direction | undefined) => {
+  const getDirectionLabel = (direction: Direction | string | undefined) => { // Allow string for old data
     if (!direction) return "N/A";
     switch (direction) {
       case "entering": return "R→L";
       case "exiting": return "L→R";
-      case "both": return "R→L + L→R";
+      case "both": return "R→L + L→R (Legacy)"; // Handle old data
       default: return direction;
     }
   };
@@ -205,7 +205,7 @@ export default function CountCamPage() {
                   <RadioGroup
                     value={selectedDirection}
                     onValueChange={(value) => setSelectedDirection(value as Direction)}
-                    className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-4" // Changed to sm:grid-cols-2
                     disabled={processing}
                   >
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
@@ -220,13 +220,6 @@ export default function CountCamPage() {
                       <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <CornerRightUp className="w-5 h-5 text-red-500" />
                         L→R
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
-                      <RadioGroupItem value="both" id="dir-both" />
-                      <Label htmlFor="dir-both" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
-                        <ArrowLeftRight className="w-5 h-5 text-blue-500" />
-                        R→L + L→R
                       </Label>
                     </div>
                   </RadioGroup>
@@ -287,7 +280,7 @@ export default function CountCamPage() {
                   <div className="flex items-center gap-3">
                     {currentStatistics.countedDirection === 'entering' && <CornerRightDown className="h-6 w-6 text-primary" />}
                     {currentStatistics.countedDirection === 'exiting' && <CornerRightUp className="h-6 w-6 text-primary" />}
-                    {currentStatistics.countedDirection === 'both' && <ArrowLeftRight className="h-6 w-6 text-primary" />}
+                    {/* Icon for 'both' removed as it's no longer a primary option */}
                     <span className="font-medium text-foreground">Counted Direction:</span>
                   </div>
                   <span className="font-semibold text-primary">{getDirectionLabel(currentStatistics.countedDirection)}</span>
