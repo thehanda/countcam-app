@@ -177,7 +177,8 @@ export default function CountCamPage() {
                 Upload Video Footage
               </CardTitle>
               <CardDescription>
-                Select a video file and counting direction. Max file size: 50MB.
+                Select a video file (MP4, MOV, AVI recommended) and counting direction. Max file size: 50MB. 
+                Other formats like MKV may not be processed correctly by the AI.
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
