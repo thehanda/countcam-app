@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo } from "react";
+import { useState, type ChangeEvent, type FormEvent, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp } from "lucide-react";
+import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp, Download } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
 import { type Direction } from "@/ai/types";
 import { format } from "date-fns";
@@ -24,6 +24,16 @@ interface StatisticsData extends CountVisitorsOutput {
 }
 
 const LOCAL_STORAGE_KEY = "visitorCountHistory";
+
+interface HourlyAggregatedData {
+  [date: string]: { 
+    [timeSlot: string]: { 
+      entering: number;
+      exiting: number;
+    };
+  };
+}
+
 
 export default function CountCamPage() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -41,7 +51,7 @@ export default function CountCamPage() {
       try {
         const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
           ...item,
-          timestamp: new Date(item.timestamp),
+          timestamp: new Date(item.timestamp), 
         }));
         setHistory(parsedHistory);
       } catch (e) {
@@ -76,13 +86,13 @@ export default function CountCamPage() {
       if (file.size > 50 * 1024 * 1024) {
         setError("File is too large. Please upload a video under 50MB.");
         setVideoFile(null);
-        event.target.value = "";
+        if (event.target) event.target.value = ""; 
         return;
       }
       if (!file.type.startsWith("video/")) {
-        setError("Invalid file type. Please upload a video file.");
+        setError("Invalid file type. Please upload a video file. Recommended: MP4, MOV, AVI. MKV files may not be processed correctly by the AI.");
         setVideoFile(null);
-        event.target.value = "";
+        if (event.target) event.target.value = "";
         return;
       }
       setVideoFile(file);
@@ -126,7 +136,7 @@ export default function CountCamPage() {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
       toast({
         title: "Processing Complete",
-        description: `Visitor count for ${newEntry.videoFileName} (${getDirectionLabel(newEntry.countedDirection)}) is ${newEntry.visitorCount}.`,
+        description: `Visitor count for ${newEntry.videoFileName} (${getDirectionLabel(newEntry.countedDirection, false)}) is ${newEntry.visitorCount}.`,
         variant: "default"
       });
 
@@ -153,17 +163,93 @@ export default function CountCamPage() {
     });
   };
 
-  const memoizedHistory = useMemo(() => history, [history]);
+  const memoizedHistory = useMemo(() => history.sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime()), [history]);
 
-  const getDirectionLabel = (direction: Direction | string | undefined) => { // Allow string for old data
+  const getDirectionLabel = (direction: Direction | string | undefined, useIconText: boolean = true) => {
     if (!direction) return "N/A";
+    const iconTextEntering = useIconText ? "R→L" : "Entering";
+    const iconTextExiting = useIconText ? "L→R" : "Exiting";
+    const legacyBoth = useIconText ? "R→L + L→R (Legacy)" : "Both (Legacy)";
+
     switch (direction) {
-      case "entering": return "R→L";
-      case "exiting": return "L→R";
-      case "both": return "R→L + L→R (Legacy)"; // Handle old data
+      case "entering": return iconTextEntering;
+      case "exiting": return iconTextExiting;
+      case "both": return legacyBoth; 
       default: return direction;
     }
   };
+  
+  const aggregateHourlyData = (historyData: StatisticsData[]): HourlyAggregatedData => {
+    const aggregated: HourlyAggregatedData = {};
+
+    historyData.forEach(entry => {
+      const entryDate = format(entry.timestamp, "yyyy-MM-dd");
+      const hour = entry.timestamp.getHours();
+      const timeSlot = `${String(hour).padStart(2, '0')}:00 - ${String(hour).padStart(2, '0')}:59`;
+
+      if (!aggregated[entryDate]) {
+        aggregated[entryDate] = {};
+      }
+      if (!aggregated[entryDate][timeSlot]) {
+        aggregated[entryDate][timeSlot] = { entering: 0, exiting: 0 };
+      }
+
+      if (entry.countedDirection === 'entering') {
+        aggregated[entryDate][timeSlot].entering += entry.visitorCount;
+      } else if (entry.countedDirection === 'exiting') {
+        aggregated[entryDate][timeSlot].exiting += entry.visitorCount;
+      }
+    });
+    return aggregated;
+  };
+
+  const handleDownloadCSV = () => {
+    if (history.length === 0) {
+      toast({
+        variant: "default",
+        title: "No Data",
+        description: "There is no history data to export.",
+      });
+      return;
+    }
+
+    const aggregatedData = aggregateHourlyData(history);
+    const csvRows = ["Date,Time Slot,Entering Visitors,Exiting Visitors"];
+    const sortedDates = Object.keys(aggregatedData).sort((a,b) => new Date(a).getTime() - new Date(b).getTime());
+
+    for (const date of sortedDates) {
+      const hourlyData = aggregatedData[date];
+      const sortedTimeSlots = Object.keys(hourlyData).sort((a, b) => {
+        const hourA = parseInt(a.split(':')[0]);
+        const hourB = parseInt(b.split(':')[0]);
+        return hourA - hourB;
+      });
+
+      for (const timeSlot of sortedTimeSlots) {
+        const counts = hourlyData[timeSlot];
+        csvRows.push(`${date},"${timeSlot}",${counts.entering},${counts.exiting}`);
+      }
+    }
+
+    const csvString = csvRows.join("\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    const reportDateStr = format(new Date(), "yyyyMMdd");
+    link.setAttribute("download", `CountCam_HourlyReport_${reportDateStr}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "CSV Downloaded",
+      description: "Hourly visitor report has been downloaded.",
+    });
+  };
+
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -177,8 +263,8 @@ export default function CountCamPage() {
                 Upload Video Footage
               </CardTitle>
               <CardDescription>
-                Select a video file (MP4, MOV, AVI recommended) and counting direction. Max file size: 50MB. 
-                Other formats like MKV may not be processed correctly by the AI.
+                Select a video file. Recommended: MP4, MOV, AVI. Max file size: 50MB. 
+                MKV files or other less common formats may not be processed correctly by the AI.
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
@@ -206,21 +292,21 @@ export default function CountCamPage() {
                   <RadioGroup
                     value={selectedDirection}
                     onValueChange={(value) => setSelectedDirection(value as Direction)}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-4" // Changed to sm:grid-cols-2
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-4" 
                     disabled={processing}
                   >
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
                       <RadioGroupItem value="entering" id="dir-entering" />
                       <Label htmlFor="dir-entering" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <CornerRightDown className="w-5 h-5 text-green-500" />
-                        R→L
+                        R→L (Entering)
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
                       <RadioGroupItem value="exiting" id="dir-exiting" />
                       <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
                         <CornerRightUp className="w-5 h-5 text-red-500" />
-                        L→R
+                        L→R (Exiting)
                       </Label>
                     </div>
                   </RadioGroup>
@@ -281,10 +367,9 @@ export default function CountCamPage() {
                   <div className="flex items-center gap-3">
                     {currentStatistics.countedDirection === 'entering' && <CornerRightDown className="h-6 w-6 text-primary" />}
                     {currentStatistics.countedDirection === 'exiting' && <CornerRightUp className="h-6 w-6 text-primary" />}
-                    {/* Icon for 'both' removed as it's no longer a primary option */}
                     <span className="font-medium text-foreground">Counted Direction:</span>
                   </div>
-                  <span className="font-semibold text-primary">{getDirectionLabel(currentStatistics.countedDirection)}</span>
+                  <span className="font-semibold text-primary">{getDirectionLabel(currentStatistics.countedDirection, false)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                    <div className="flex items-center gap-3">
@@ -306,8 +391,8 @@ export default function CountCamPage() {
 
           {memoizedHistory.length > 0 && (
             <Card className="shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
+              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex-grow">
                   <CardTitle className="text-2xl flex items-center gap-2">
                     <ListChecks className="text-primary" />
                     Processing History
@@ -316,10 +401,16 @@ export default function CountCamPage() {
                     Previously processed video counts.
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleClearHistory} aria-label="Clear history">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Clear History
-                </Button>
+                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                   <Button variant="outline" size="sm" onClick={handleDownloadCSV} aria-label="Download hourly report CSV" className="flex-1 sm:flex-none">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Report (CSV)
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleClearHistory} aria-label="Clear history" className="flex-1 sm:flex-none">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Clear History
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -335,7 +426,7 @@ export default function CountCamPage() {
                   <TableBody>
                     {memoizedHistory.map((entry) => (
                       <TableRow key={entry.id}>
-                        <TableCell className="font-medium truncate max-w-[200px] sm:max-w-xs">{entry.videoFileName}</TableCell>
+                        <TableCell className="font-medium truncate max-w-[150px] sm:max-w-xs">{entry.videoFileName}</TableCell>
                         <TableCell className="text-center">{getDirectionLabel(entry.countedDirection)}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "PPP")}</TableCell>
@@ -347,7 +438,6 @@ export default function CountCamPage() {
               </CardContent>
             </Card>
           )}
-
         </div>
       </main>
       <footer className="text-center py-4 border-t text-sm text-muted-foreground">
@@ -356,3 +446,4 @@ export default function CountCamPage() {
     </div>
   );
 }
+
