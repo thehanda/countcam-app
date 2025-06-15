@@ -9,25 +9,26 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp, Download } from "lucide-react";
+import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp, Download, Video } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
 import { type Direction } from "@/ai/types";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 
 
 interface StatisticsData extends CountVisitorsOutput {
   id: string;
-  timestamp: Date;
+  timestamp: Date; // Processing timestamp
   videoFileName: string;
+  recordingStartDateTime: Date; // Actual recording start time
 }
 
 const LOCAL_STORAGE_KEY = "visitorCountHistory";
 
 interface HourlyAggregatedData {
-  [date: string]: { 
-    [timeSlot: string]: { 
+  [date: string]: {
+    [timeSlot: string]: {
       entering: number;
       exiting: number;
     };
@@ -43,6 +44,13 @@ export default function CountCamPage() {
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [history, setHistory] = useState<StatisticsData[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<Direction>("entering");
+  
+  const defaultRecordingDate = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const defaultRecordingTime = useMemo(() => format(new Date(), "HH:mm"), []);
+  
+  const [recordingDate, setRecordingDate] = useState<string>(defaultRecordingDate);
+  const [recordingTime, setRecordingTime] = useState<string>(defaultRecordingTime);
+  
   const { toast } = useToast();
 
   useEffect(() => {
@@ -51,7 +59,8 @@ export default function CountCamPage() {
       try {
         const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
           ...item,
-          timestamp: new Date(item.timestamp), 
+          timestamp: new Date(item.timestamp),
+          recordingStartDateTime: item.recordingStartDateTime ? new Date(item.recordingStartDateTime) : new Date(item.timestamp), // Fallback for old data
         }));
         setHistory(parsedHistory);
       } catch (e) {
@@ -73,6 +82,11 @@ export default function CountCamPage() {
         setFilePreview(reader.result as string);
       };
       reader.readAsDataURL(videoFile);
+       // Reset recording date/time to current when a new file is selected, or keep existing?
+      // For now, let's keep the user's potentially modified date/time or the initial default.
+      // If we want to reset:
+      // setRecordingDate(format(new Date(), "yyyy-MM-dd"));
+      // setRecordingTime(format(new Date(), "HH:mm"));
     } else {
       setFilePreview(null);
     }
@@ -86,11 +100,11 @@ export default function CountCamPage() {
       if (file.size > 50 * 1024 * 1024) {
         setError("File is too large. Please upload a video under 50MB.");
         setVideoFile(null);
-        if (event.target) event.target.value = ""; 
+        if (event.target) event.target.value = "";
         return;
       }
       if (!file.type.startsWith("video/")) {
-        setError("Invalid file type. Please upload a video file. Recommended: MP4, MOV, AVI. MKV files may not be processed correctly by the AI.");
+        setError("Invalid file type. Please upload a video file. Recommended: MP4, MOV, AVI. MKV files or other less common formats may not be processed correctly by the AI.");
         setVideoFile(null);
         if (event.target) event.target.value = "";
         return;
@@ -107,6 +121,27 @@ export default function CountCamPage() {
       setError("Please select a video file to upload.");
       return;
     }
+    if (!recordingDate || !recordingTime) {
+      setError("Please set the recording start date and time.");
+      return;
+    }
+
+    let startDateTime;
+    try {
+      startDateTime = parse(`${recordingDate} ${recordingTime}`, 'yyyy-MM-dd HH:mm', new Date());
+      if (isNaN(startDateTime.getTime())) {
+        throw new Error("Invalid date or time format.");
+      }
+    } catch (parseError) {
+      setError("Invalid recording start date or time. Please use YYYY-MM-DD and HH:MM format.");
+      toast({
+        variant: "destructive",
+        title: "Invalid Input",
+        description: "Please check the recording start date and time.",
+      });
+      return;
+    }
+
 
     setProcessing(true);
     setError(null);
@@ -125,7 +160,8 @@ export default function CountCamPage() {
       const newEntry: StatisticsData = {
         ...result,
         id: Date.now().toString() + Math.random().toString(36).substring(2,9),
-        timestamp: new Date(),
+        timestamp: new Date(), // Processing time
+        recordingStartDateTime: startDateTime, // User-provided recording start time
         videoFileName: videoFile.name,
       };
 
@@ -136,7 +172,7 @@ export default function CountCamPage() {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
       toast({
         title: "Processing Complete",
-        description: `Visitor count for ${newEntry.videoFileName} (${getDirectionLabel(newEntry.countedDirection, false)}) is ${newEntry.visitorCount}.`,
+        description: `Visitor count for ${newEntry.videoFileName} (Recorded: ${format(newEntry.recordingStartDateTime, "PP p")}, Direction: ${getDirectionLabel(newEntry.countedDirection, false)}) is ${newEntry.visitorCount}.`,
         variant: "default"
       });
 
@@ -169,12 +205,10 @@ export default function CountCamPage() {
     if (!direction) return "N/A";
     const iconTextEntering = useIconText ? "R→L" : "Entering";
     const iconTextExiting = useIconText ? "L→R" : "Exiting";
-    const legacyBoth = useIconText ? "R→L + L→R (Legacy)" : "Both (Legacy)";
-
+    
     switch (direction) {
       case "entering": return iconTextEntering;
       case "exiting": return iconTextExiting;
-      case "both": return legacyBoth; 
       default: return direction;
     }
   };
@@ -183,8 +217,10 @@ export default function CountCamPage() {
     const aggregated: HourlyAggregatedData = {};
 
     historyData.forEach(entry => {
-      const entryDate = format(entry.timestamp, "yyyy-MM-dd");
-      const hour = entry.timestamp.getHours();
+      if (!entry.recordingStartDateTime) return; // Skip if no recording start time
+
+      const entryDate = format(entry.recordingStartDateTime, "yyyy-MM-dd");
+      const hour = entry.recordingStartDateTime.getHours();
       const timeSlot = `${String(hour).padStart(2, '0')}:00 - ${String(hour).padStart(2, '0')}:59`;
 
       if (!aggregated[entryDate]) {
@@ -214,6 +250,14 @@ export default function CountCamPage() {
     }
 
     const aggregatedData = aggregateHourlyData(history);
+    if (Object.keys(aggregatedData).length === 0) {
+         toast({
+            variant: "default",
+            title: "No Data for Report",
+            description: "No entries with valid recording start times found to generate the report.",
+        });
+        return;
+    }
     const csvRows = ["Date,Time Slot,Entering Visitors,Exiting Visitors"];
     const sortedDates = Object.keys(aggregatedData).sort((a,b) => new Date(a).getTime() - new Date(b).getTime());
 
@@ -263,8 +307,9 @@ export default function CountCamPage() {
                 Upload Video Footage
               </CardTitle>
               <CardDescription>
-                Select a video file. Recommended: MP4, MOV, AVI. Max file size: 50MB. 
-                MKV files or other less common formats may not be processed correctly by the AI.
+                Select a video file. Recommended: MP4, MOV, AVI (using H.264 codec). Max file size: 50MB.
+                MKV files or other less common formats/codecs may not be processed correctly by the AI.
+                Set the actual recording start date and time for accurate hourly reports.
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
@@ -287,12 +332,37 @@ export default function CountCamPage() {
                   )}
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="recordingDate">Recording Start Date</Label>
+                    <Input
+                      id="recordingDate"
+                      type="date"
+                      value={recordingDate}
+                      onChange={(e) => setRecordingDate(e.target.value)}
+                      disabled={processing}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="recordingTime">Recording Start Time</Label>
+                    <Input
+                      id="recordingTime"
+                      type="time"
+                      value={recordingTime}
+                      onChange={(e) => setRecordingTime(e.target.value)}
+                      disabled={processing}
+                      required
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   <Label className="text-base font-medium">Counting Direction</Label>
                   <RadioGroup
                     value={selectedDirection}
                     onValueChange={(value) => setSelectedDirection(value as Direction)}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-4" 
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                     disabled={processing}
                   >
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
@@ -371,19 +441,19 @@ export default function CountCamPage() {
                   </div>
                   <span className="font-semibold text-primary">{getDirectionLabel(currentStatistics.countedDirection, false)}</span>
                 </div>
+                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
+                   <div className="flex items-center gap-3">
+                    <Video className="h-6 w-6 text-primary" />
+                    <span className="font-medium text-foreground">Recording Started:</span>
+                  </div>
+                  <span className="font-semibold text-primary">{format(currentStatistics.recordingStartDateTime, "PP p")}</span>
+                </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                    <div className="flex items-center gap-3">
                     <CalendarDays className="h-6 w-6 text-primary" />
-                    <span className="font-medium text-foreground">Date Processed:</span>
+                    <span className="font-medium text-foreground">Processed On:</span>
                   </div>
-                  <span className="font-semibold text-primary">{format(currentStatistics.timestamp, "PPP")}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-6 w-6 text-primary" />
-                    <span className="font-medium text-foreground">Time Processed:</span>
-                  </div>
-                  <span className="font-semibold text-primary">{format(currentStatistics.timestamp, "p")}</span>
+                  <span className="font-semibold text-primary">{format(currentStatistics.timestamp, "PP p")}</span>
                 </div>
               </CardContent>
             </Card>
@@ -398,7 +468,7 @@ export default function CountCamPage() {
                     Processing History
                   </CardTitle>
                   <CardDescription>
-                    Previously processed video counts.
+                    Previously processed video counts. Hourly report uses recording start time.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
@@ -419,18 +489,18 @@ export default function CountCamPage() {
                       <TableHead>Video File</TableHead>
                       <TableHead className="text-center">Direction</TableHead>
                       <TableHead className="text-center">Visitors</TableHead>
-                      <TableHead className="text-right">Date</TableHead>
-                      <TableHead className="text-right">Time</TableHead>
+                      <TableHead>Recording Started</TableHead>
+                      <TableHead className="text-right">Processed On</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {memoizedHistory.map((entry) => (
                       <TableRow key={entry.id}>
-                        <TableCell className="font-medium truncate max-w-[150px] sm:max-w-xs">{entry.videoFileName}</TableCell>
+                        <TableCell className="font-medium truncate max-w-[150px] sm:max-w-[180px]">{entry.videoFileName}</TableCell>
                         <TableCell className="text-center">{getDirectionLabel(entry.countedDirection)}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
-                        <TableCell className="text-right">{format(entry.timestamp, "PPP")}</TableCell>
-                        <TableCell className="text-right">{format(entry.timestamp, "p")}</TableCell>
+                        <TableCell>{format(entry.recordingStartDateTime, "PP p")}</TableCell>
+                        <TableCell className="text-right">{format(entry.timestamp, "PP p")}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
