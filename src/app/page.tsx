@@ -9,10 +9,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, CalendarDays, Clock, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp, Download, Video } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Loader2, Users, CalendarDays, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Trash2, CornerRightDown, CornerRightUp, Download, Video, Files } from "lucide-react";
 import { countVisitors, type CountVisitorsOutput } from "@/ai/flows/count-visitors";
 import { type Direction } from "@/ai/types";
-import { format, parse } from "date-fns";
+import { format, parse as dateParse, isValid as isValidDate } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 
@@ -35,23 +36,32 @@ interface HourlyAggregatedData {
   };
 }
 
+interface BatchFile {
+  file: File;
+  parsedDate?: string;
+  parsedTime?: string;
+}
+
 
 export default function CountCamPage() {
-  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<BatchFile[]>([]);
   const [processing, setProcessing] = useState<boolean>(false);
+  const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+  const [batchProgress, setBatchProgress] = useState(0);
+  const [currentBatchFileIndex, setCurrentBatchFileIndex] = useState(0);
   const [currentStatistics, setCurrentStatistics] = useState<StatisticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
   const [history, setHistory] = useState<StatisticsData[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<Direction>("entering");
   
   const defaultRecordingDate = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
   const defaultRecordingTime = useMemo(() => format(new Date(), "HH:mm"), []);
   
-  const [recordingDate, setRecordingDate] = useState<string>(defaultRecordingDate);
-  const [recordingTime, setRecordingTime] = useState<string>(defaultRecordingTime);
+  const [formRecordingDate, setFormRecordingDate] = useState<string>(defaultRecordingDate);
+  const [formRecordingTime, setFormRecordingTime] = useState<string>(defaultRecordingTime);
   
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const storedHistory = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -60,7 +70,7 @@ export default function CountCamPage() {
         const parsedHistory: StatisticsData[] = JSON.parse(storedHistory).map((item: any) => ({
           ...item,
           timestamp: new Date(item.timestamp),
-          recordingStartDateTime: item.recordingStartDateTime ? new Date(item.recordingStartDateTime) : new Date(item.timestamp), // Fallback for old data
+          recordingStartDateTime: item.recordingStartDateTime ? new Date(item.recordingStartDateTime) : new Date(item.timestamp), 
         }));
         setHistory(parsedHistory);
       } catch (e) {
@@ -75,82 +85,111 @@ export default function CountCamPage() {
     }
   }, [toast]);
 
-  useEffect(() => {
-    if (videoFile) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFilePreview(reader.result as string);
-      };
-      reader.readAsDataURL(videoFile);
-       // Reset recording date/time to current when a new file is selected, or keep existing?
-      // For now, let's keep the user's potentially modified date/time or the initial default.
-      // If we want to reset:
-      // setRecordingDate(format(new Date(), "yyyy-MM-dd"));
-      // setRecordingTime(format(new Date(), "HH:mm"));
-    } else {
-      setFilePreview(null);
+  const parseDateTimeFromFilename = (filename: string): { date?: string; time?: string } => {
+    const patterns = [
+      /(?<year>\d{4})[-_]?(\d{2})[-_]?(\d{2})[-_ ]?(\d{2})[-_:]?(\d{2})[-_:]?(\d{2})/, // YYYYMMDDHHMMSS with optional separators
+      /(?<year>\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, // YYYYMMDD_HHMMSS
+      /(?<year>\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/, // YYYY-MM-DD_HH-MM-SS
+    ];
+
+    for (const pattern of patterns) {
+        const match = filename.match(pattern);
+        if (match && match.groups) {
+            const { year, groups } = match;
+            // Ensure we have enough groups for date and time
+            if (match.length >= 7) { // year + 6 groups (MM, DD, HH, MM, SS) or more if groups are named differently
+                let month, day, hour, minute, second;
+                if (groups && groups.year) { // Named groups from first pattern
+                     month = match[2]; day = match[3]; hour = match[4]; minute = match[5]; second = match[6];
+                } else { // Positional groups
+                     month = match[2]; day = match[3]; hour = match[4]; minute = match[5]; second = match[6];
+                }
+
+                const parsedDate = dateParse(`${year}-${month}-${day} ${hour}:${minute}:${second}`, 'yyyy-MM-dd HH:mm:ss', new Date());
+                if (isValidDate(parsedDate)) {
+                    return {
+                        date: format(parsedDate, "yyyy-MM-dd"),
+                        time: format(parsedDate, "HH:mm"),
+                    };
+                }
+            }
+        } else if (match) { // For simpler patterns without named groups
+            const year = match[1];
+            const month = match[2];
+            const day = match[3];
+            const hour = match[4];
+            const minute = match[5];
+            // const second = match[6]; // Optional second
+
+            const parsedDateObj = dateParse(`${year}-${month}-${day} ${hour}:${minute}`, 'yyyy-MM-dd HH:mm', new Date());
+             if (isValidDate(parsedDateObj)) {
+                return {
+                    date: format(parsedDateObj, "yyyy-MM-dd"),
+                    time: format(parsedDateObj, "HH:mm"),
+                };
+            }
+        }
     }
-  }, [videoFile]);
+    return {};
+  };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     setError(null);
     setCurrentStatistics(null);
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) {
-        setError("File is too large. Please upload a video under 50MB.");
-        setVideoFile(null);
-        if (event.target) event.target.value = "";
-        return;
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      const newBatchFiles: BatchFile[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 50 * 1024 * 1024) {
+          setError(`File "${file.name}" is too large (max 50MB). It will be skipped.`);
+          continue; 
+        }
+        if (!file.type.startsWith("video/")) {
+          setError(`File "${file.name}" is not a valid video type. It will be skipped. Recommended: MP4, MOV, AVI.`);
+          continue;
+        }
+        const { date: parsedDate, time: parsedTime } = parseDateTimeFromFilename(file.name);
+        newBatchFiles.push({ file, parsedDate, parsedTime });
       }
-      if (!file.type.startsWith("video/")) {
-        setError("Invalid file type. Please upload a video file. Recommended: MP4, MOV, AVI. MKV files or other less common formats may not be processed correctly by the AI.");
-        setVideoFile(null);
-        if (event.target) event.target.value = "";
-        return;
+      setSelectedFiles(newBatchFiles);
+      if (newBatchFiles.length === 0 && files.length > 0) { // All files were skipped
+        toast({ variant: "destructive", title: "No valid files selected", description: "All selected files were skipped due to size or type errors."});
+      } else if (newBatchFiles.length < files.length) {
+        toast({ variant: "default", title: "Some files skipped", description: "Some files were skipped due to size or type errors. Check error messages."});
       }
-      setVideoFile(file);
+
     } else {
-      setVideoFile(null);
+      setSelectedFiles([]);
     }
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!videoFile) {
-      setError("Please select a video file to upload.");
-      return;
-    }
-    if (!recordingDate || !recordingTime) {
-      setError("Please set the recording start date and time.");
-      return;
-    }
-
-    let startDateTime;
-    try {
-      startDateTime = parse(`${recordingDate} ${recordingTime}`, 'yyyy-MM-dd HH:mm', new Date());
-      if (isNaN(startDateTime.getTime())) {
-        throw new Error("Invalid date or time format.");
-      }
-    } catch (parseError) {
-      setError("Invalid recording start date or time. Please use YYYY-MM-DD and HH:MM format.");
-      toast({
-        variant: "destructive",
-        title: "Invalid Input",
-        description: "Please check the recording start date and time.",
-      });
-      return;
-    }
-
-
+  const processSingleFile = async (batchFile: BatchFile, recordingDateToUse: string, recordingTimeToUse: string) => {
     setProcessing(true);
     setError(null);
     setCurrentStatistics(null);
 
+    let startDateTime;
+    try {
+      startDateTime = dateParse(`${recordingDateToUse} ${recordingTimeToUse}`, 'yyyy-MM-dd HH:mm', new Date());
+      if (isNaN(startDateTime.getTime())) {
+        throw new Error("Invalid date or time format for file: " + batchFile.file.name);
+      }
+    } catch (parseError) {
+      setError(`Invalid recording start date/time for ${batchFile.file.name}. Used: ${recordingDateToUse} ${recordingTimeToUse}. Please use YYYY-MM-DD and HH:MM format.`);
+      toast({
+        variant: "destructive",
+        title: "Invalid Input",
+        description: `Invalid recording start date/time for ${batchFile.file.name}.`,
+      });
+      setProcessing(false);
+      return false; // Indicate failure
+    }
+
     try {
       const videoDataUri = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.readAsDataURL(videoFile);
+        reader.readAsDataURL(batchFile.file);
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = (error) => reject(error);
       });
@@ -160,35 +199,80 @@ export default function CountCamPage() {
       const newEntry: StatisticsData = {
         ...result,
         id: Date.now().toString() + Math.random().toString(36).substring(2,9),
-        timestamp: new Date(), // Processing time
-        recordingStartDateTime: startDateTime, // User-provided recording start time
-        videoFileName: videoFile.name,
+        timestamp: new Date(),
+        recordingStartDateTime: startDateTime,
+        videoFileName: batchFile.file.name,
       };
 
-      setCurrentStatistics(newEntry);
+      setCurrentStatistics(newEntry); // Show stats for the currently processed file
 
-      const updatedHistory = [newEntry, ...history];
-      setHistory(updatedHistory);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
+      setHistory(prevHistory => {
+        const updatedHistory = [newEntry, ...prevHistory];
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedHistory));
+        return updatedHistory;
+      });
+      
       toast({
         title: "Processing Complete",
         description: `Visitor count for ${newEntry.videoFileName} (Recorded: ${format(newEntry.recordingStartDateTime, "PP p")}, Direction: ${getDirectionLabel(newEntry.countedDirection, false)}) is ${newEntry.visitorCount}.`,
         variant: "default"
       });
-
+      return true; // Indicate success
     } catch (err) {
-      console.error("Error processing video:", err);
-      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during processing.";
-      setError(`Failed to count visitors: ${errorMessage}. Please try a different video or check the video format.`);
-       toast({
+      console.error(`Error processing video ${batchFile.file.name}:`, err);
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
+      setError(`Failed to count visitors for ${batchFile.file.name}: ${errorMessage}.`);
+      toast({
         variant: "destructive",
-        title: "Processing Error",
+        title: `Error: ${batchFile.file.name}`,
         description: `Failed to count visitors. ${errorMessage}`,
       });
+      return false; // Indicate failure
     } finally {
       setProcessing(false);
     }
   };
+
+  const handleBatchSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (selectedFiles.length === 0) {
+      setError("Please select video files to upload.");
+      return;
+    }
+
+    setIsBatchProcessing(true);
+    setBatchProgress(0);
+    setCurrentBatchFileIndex(0);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+      setCurrentBatchFileIndex(i);
+      const batchFile = selectedFiles[i];
+      const recordingDateToUse = batchFile.parsedDate || formRecordingDate;
+      const recordingTimeToUse = batchFile.parsedTime || formRecordingTime;
+      
+      const success = await processSingleFile(batchFile, recordingDateToUse, recordingTimeToUse);
+      if (success) {
+        successCount++;
+      } else {
+        errorCount++;
+      }
+      setBatchProgress(((i + 1) / selectedFiles.length) * 100);
+    }
+    
+    setIsBatchProcessing(false);
+    setSelectedFiles([]); // Clear selection after batch processing
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""; // Reset file input
+    }
+    toast({
+        title: "Batch Processing Finished",
+        description: `${successCount} file(s) processed successfully, ${errorCount} file(s) failed.`,
+        variant: successCount > 0 && errorCount === 0 ? "default" : (errorCount > 0 ? "destructive" : "default")
+    });
+  };
+
 
   const handleClearHistory = () => {
     setHistory([]);
@@ -217,7 +301,7 @@ export default function CountCamPage() {
     const aggregated: HourlyAggregatedData = {};
 
     historyData.forEach(entry => {
-      if (!entry.recordingStartDateTime) return; // Skip if no recording start time
+      if (!entry.recordingStartDateTime || !isValidDate(entry.recordingStartDateTime)) return;
 
       const entryDate = format(entry.recordingStartDateTime, "yyyy-MM-dd");
       const hour = entry.recordingStartDateTime.getHours();
@@ -259,7 +343,7 @@ export default function CountCamPage() {
         return;
     }
     const csvRows = ["Date,Time Slot,Entering Visitors,Exiting Visitors"];
-    const sortedDates = Object.keys(aggregatedData).sort((a,b) => new Date(a).getTime() - new Date(b).getTime());
+    const sortedDates = Object.keys(aggregatedData).sort((a,b) => dateParse(a, "yyyy-MM-dd", new Date()).getTime() - dateParse(b, "yyyy-MM-dd", new Date()).getTime());
 
     for (const date of sortedDates) {
       const hourlyData = aggregatedData[date];
@@ -275,7 +359,7 @@ export default function CountCamPage() {
       }
     }
 
-    const csvString = csvRows.join("\n");
+    const csvString = csvRows.join("\\n");
     const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -307,63 +391,72 @@ export default function CountCamPage() {
                 Upload Video Footage
               </CardTitle>
               <CardDescription>
-                Select a video file. Recommended: MP4, MOV, AVI (using H.264 codec). Max file size: 50MB.
-                MKV files or other less common formats/codecs may not be processed correctly by the AI.
-                Set the actual recording start date and time for accurate hourly reports.
+                Select one or more video files. Recommended: MP4, MOV, AVI (H.264 codec). Max 50MB per file.
+                MKV files or other formats/codecs may not be processed correctly.
+                The app will try to extract recording date/time from filenames (e.g., YYYYMMDD_HHMMSS). 
+                If not found, the date/time entered below will be used as a fallback for those files.
               </CardDescription>
             </CardHeader>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleBatchSubmit}>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="videoFile">Video File</Label>
+                  <Label htmlFor="videoFile">Video File(s)</Label>
                   <Input
                     id="videoFile"
                     type="file"
                     accept="video/*"
+                    multiple // Allow multiple file selection
                     onChange={handleFileChange}
-                    disabled={processing}
+                    disabled={processing || isBatchProcessing}
+                    ref={fileInputRef}
                     className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                   />
-                  {videoFile && !error && (
+                  {selectedFiles.length > 0 && !error && (
                      <div className="text-sm text-muted-foreground flex items-center gap-2 p-2 border rounded-md bg-secondary/50">
-                        <FileVideo className="w-5 h-5 text-primary" />
-                        <span>Selected: {videoFile.name} ({(videoFile.size / (1024*1024)).toFixed(2)} MB)</span>
+                        <Files className="w-5 h-5 text-primary" />
+                        <span>Selected: {selectedFiles.length} file(s)</span>
                     </div>
                   )}
+                  {selectedFiles.map((batchFile, index) => (
+                    <div key={index} className="text-xs text-muted-foreground ml-2">
+                      - {batchFile.file.name} 
+                      {batchFile.parsedDate && batchFile.parsedTime && ` (Parsed: ${batchFile.parsedDate} ${batchFile.parsedTime})`}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="recordingDate">Recording Start Date</Label>
+                    <Label htmlFor="recordingDate">Fallback Recording Start Date</Label>
                     <Input
                       id="recordingDate"
                       type="date"
-                      value={recordingDate}
-                      onChange={(e) => setRecordingDate(e.target.value)}
-                      disabled={processing}
+                      value={formRecordingDate}
+                      onChange={(e) => setFormRecordingDate(e.target.value)}
+                      disabled={processing || isBatchProcessing}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="recordingTime">Recording Start Time</Label>
+                    <Label htmlFor="recordingTime">Fallback Recording Start Time</Label>
                     <Input
                       id="recordingTime"
                       type="time"
-                      value={recordingTime}
-                      onChange={(e) => setRecordingTime(e.target.value)}
-                      disabled={processing}
+                      value={formRecordingTime}
+                      onChange={(e) => setFormRecordingTime(e.target.value)}
+                      disabled={processing || isBatchProcessing}
                       required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <Label className="text-base font-medium">Counting Direction</Label>
+                  <Label className="text-base font-medium">Counting Direction (for all files in batch)</Label>
                   <RadioGroup
                     value={selectedDirection}
                     onValueChange={(value) => setSelectedDirection(value as Direction)}
                     className="grid grid-cols-1 sm:grid-cols-2 gap-4"
-                    disabled={processing}
+                    disabled={processing || isBatchProcessing}
                   >
                     <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all">
                       <RadioGroupItem value="entering" id="dir-entering" />
@@ -381,24 +474,31 @@ export default function CountCamPage() {
                     </div>
                   </RadioGroup>
                 </div>
-
-                {filePreview && videoFile && !error && (
-                  <div className="mt-4 border rounded-md overflow-hidden">
-                     <video controls src={filePreview} className="w-full max-h-60 aspect-video object-contain bg-muted"></video>
+                
+                {isBatchProcessing && (
+                  <div className="space-y-2">
+                    <Label>Batch Progress (File {currentBatchFileIndex + 1} of {selectedFiles.length}): {selectedFiles[currentBatchFileIndex]?.file.name}</Label>
+                    <Progress value={batchProgress} className="w-full" />
                   </div>
                 )}
+
               </CardContent>
               <CardFooter>
-                <Button type="submit" disabled={processing || !videoFile} className="w-full">
-                  {processing ? (
+                <Button type="submit" disabled={processing || isBatchProcessing || selectedFiles.length === 0} className="w-full">
+                  {isBatchProcessing ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
+                      Processing Batch...
+                    </>
+                  ) : processing ? (
+                     <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing File...
                     </>
                   ) : (
                     <>
                       <Users className="mr-2 h-4 w-4" />
-                      Count Visitors
+                      {selectedFiles.length > 1 ? `Process ${selectedFiles.length} Files` : (selectedFiles.length === 1 ? "Process Selected File" : "Count Visitors (Select Files)") }
                     </>
                   )}
                 </Button>
@@ -414,12 +514,12 @@ export default function CountCamPage() {
             </Alert>
           )}
 
-          {currentStatistics && !processing && (
+          {currentStatistics && !processing && !isBatchProcessing && ( // Only show if not batch processing and not individually processing
             <Card className="shadow-lg bg-gradient-to-br from-card to-secondary/30">
               <CardHeader>
                 <CardTitle className="text-2xl flex items-center text-accent-foreground gap-2">
                    <CheckCircle2 className="text-accent" />
-                   Visitor Count Results
+                   Last Processed Result
                 </CardTitle>
                 <CardDescription className="text-accent-foreground/80">
                   Analysis complete for: <strong>{currentStatistics.videoFileName}</strong>
@@ -446,7 +546,7 @@ export default function CountCamPage() {
                     <Video className="h-6 w-6 text-primary" />
                     <span className="font-medium text-foreground">Recording Started:</span>
                   </div>
-                  <span className="font-semibold text-primary">{format(currentStatistics.recordingStartDateTime, "PP p")}</span>
+                  <span className="font-semibold text-primary">{currentStatistics.recordingStartDateTime ? format(currentStatistics.recordingStartDateTime, "PP p") : 'N/A'}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm">
                    <div className="flex items-center gap-3">
@@ -472,11 +572,11 @@ export default function CountCamPage() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                   <Button variant="outline" size="sm" onClick={handleDownloadCSV} aria-label="Download hourly report CSV" className="flex-1 sm:flex-none">
+                   <Button variant="outline" size="sm" onClick={handleDownloadCSV} disabled={isBatchProcessing} aria-label="Download hourly report CSV" className="flex-1 sm:flex-none">
                     <Download className="mr-2 h-4 w-4" />
                     Download Report (CSV)
                   </Button>
-                  <Button variant="outline" size="sm" onClick={handleClearHistory} aria-label="Clear history" className="flex-1 sm:flex-none">
+                  <Button variant="outline" size="sm" onClick={handleClearHistory} disabled={isBatchProcessing} aria-label="Clear history" className="flex-1 sm:flex-none">
                     <Trash2 className="mr-2 h-4 w-4" />
                     Clear History
                   </Button>
@@ -499,7 +599,7 @@ export default function CountCamPage() {
                         <TableCell className="font-medium truncate max-w-[150px] sm:max-w-[180px]">{entry.videoFileName}</TableCell>
                         <TableCell className="text-center">{getDirectionLabel(entry.countedDirection)}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
-                        <TableCell>{format(entry.recordingStartDateTime, "PP p")}</TableCell>
+                        <TableCell>{entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "PP p") : 'N/A'}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "PP p")}</TableCell>
                       </TableRow>
                     ))}
@@ -517,3 +617,4 @@ export default function CountCamPage() {
   );
 }
 
+    
