@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from '@/ai/flows/count-visitors';
 import { DirectionEnum, type Direction } from '@/ai/types';
 import { z } from 'zod';
-import { parse as dateParse, isValid as isValidDate, format } from 'date-fns';
+import { parse as dateParse, isValid as isValidDate } from 'date-fns';
 
 // Helper function to convert ArrayBuffer to Base64 string using Node.js Buffer
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -12,8 +12,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-const IsoDateTimeStringSchema = z.string().datetime({ offset: true }); // Expect ISO 8601 format
 
 const ApiJsonInputSchema = z.object({
   videoDataUri: z.string().refine(s => s.startsWith('data:video/') && s.includes(';base64,'), {
@@ -60,7 +58,6 @@ export async function POST(request: NextRequest) {
       if (recTime) recordingTimeStr = recTime;
 
 
-      // Prioritize type from curl if available (e.g., videoFile=@file.mp4;type=video/mp4)
       let mimeType = file.type;
       const fieldNameKeys = Array.from(formData.keys()) as string[];
       const videoFileFieldKey = fieldNameKeys.find(key => key.startsWith('videoFile') && key.includes(';type='));
@@ -102,7 +99,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (recordingDateStr && recordingTimeStr) {
-      // Validate date and time formats before parsing
       if (!/^\d{4}-\d{2}-\d{2}$/.test(recordingDateStr) || !/^\d{2}:\d{2}$/.test(recordingTimeStr)) {
         return NextResponse.json({ error: 'Invalid recordingDate or recordingTime format. Use YYYY-MM-DD and HH:MM.' }, { status: 400 });
       }
@@ -110,7 +106,6 @@ export async function POST(request: NextRequest) {
       if (isValidDate(parsedDateTime)) {
         recordingStartDateTime = parsedDateTime;
       } else {
-        // Log a warning but proceed without it if parsing fails
         console.warn(`Could not parse recordingDate '${recordingDateStr}' and recordingTime '${recordingTimeStr}' into a valid date.`);
       }
     }
@@ -136,14 +131,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(responsePayload, { status: 200 });
 
   } catch (error: any) {
-    console.error('API Error processing video:', error);
-    let errorMessage = 'Failed to process video.';
+    console.error('--- API Error processing video (Raw Error Object) ---');
+    console.error(error);
+    console.error('--- End of Raw Error Object ---');
+
+    let errorMessage = 'Failed to process video. An internal server error occurred.';
+    let errorDetails: any = 'See server logs for more details.';
+
     if (error instanceof z.ZodError) {
         errorMessage = 'Invalid request body format.';
-    } else if (error.message) {
-        errorMessage = error.message;
+        errorDetails = error.format();
+        console.error('Error Type: ZodError');
+    } else {
+        if (error.message) {
+            errorMessage = error.message;
+        }
+        if (error.stack) {
+            console.error('Error Stack:', error.stack);
+        }
+        if (error.cause) {
+            console.error('Error Cause:', error.cause);
+        }
+        errorDetails = String(error); // Keep it simple for client, more details in server log
     }
-    return NextResponse.json({ error: errorMessage, details: error instanceof z.ZodError ? error.format() : undefined }, { status: 500 });
+    
+    console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${error.message || 'N/A'}`);
+
+    return NextResponse.json({ 
+        error: 'Failed to process video. An internal server error occurred.', // Generic message to client
+        messageFromServer: errorMessage, // Potentially more specific message
+        details: errorDetails // Only include ZodError.format() or string representation
+    }, { status: 500 });
   }
 }
-

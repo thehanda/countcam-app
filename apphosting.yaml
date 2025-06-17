@@ -1,3 +1,4 @@
+
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
@@ -5,3 +6,40 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
+  # Set timeout for request handling (in seconds).
+  # Video processing can take time. Default is 60s. Max is 3600s.
+  timeoutSeconds: 360 # 6 minutes
+
+# buildSteps:
+#   - run: npm install -g firebase-tools
+#   - run: firebase deploy --only hosting
+
+# headers:
+#   - source: /api/**
+#     headers:
+#       - key: Access-Control-Allow-Origin
+#         value: '*'
+#       - key: Access-Control-Allow-Methods
+#         value: GET,POST,PUT,DELETE,OPTIONS
+#       - key: Access-Control-Allow-Headers
+#         value: Content-Type,Authorization
+#       - key: Access-Control-Allow-Credentials
+#         value: 'true'
+#   - source: /**
+#     headers:
+#       - key: Access-Control-Allow-Origin
+#         value: '*'
+#       - key: Access-Control-Allow-Methods
+#         value: GET,POST,PUT,DELETE,OPTIONS
+#       - key: Access-Control-Allow-Headers
+#         value: Content-Type,Authorization
+#       - key: Access-Control-Allow-Credentials
+#         value: 'true'
+
+# env:
+#   - variable: GOOGLE_API_KEY
+#     value: YOUR_GOOGLE_API_KEY_HERE # IMPORTANT: Replace with your actual key or use secrets
+#   - variable: FIREBASE_API_KEY
+#     value: YOUR_FIREBASE_API_KEY_HERE # IMPORTANT: Replace if needed
+#   - variable: GENKIT_ENV
+#     value: prod
