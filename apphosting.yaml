@@ -47,3 +47,10 @@ env:
   #   value: "YOUR_FIREBASE_API_KEY_IF_NEEDED_BY_APP_LOGIC" # Only if your application code specifically needs it server-side
   - variable: GENKIT_ENV
     value: "prod"
+# 環境変数を設定
+env:
+  # GOOGLE_API_KEY という名前の環境変数として、アプリ内で利用できるようにする
+  - variable: GOOGLE_API_KEY
+    # Secret Managerに保管したシークレットを参照する
+    # 'YOUR_PROJECT_ID' の部分を、あなたの実際のプロジェクトIDに置き換えてください
+    secret: 'projects/countcam-z8573/secrets/countcam-google-api-key/versions/latest'
