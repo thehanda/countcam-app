@@ -54,3 +54,4 @@ env:
     # Secret Managerに保管したシークレットを参照する
     # 'YOUR_PROJECT_ID' の部分を、あなたの実際のプロジェクトIDに置き換えてください
     secret: 'projects/countcam-z8573/secrets/countcam-google-api-key/versions/latest'
+    # All permissions set. Ready for final deploy.
