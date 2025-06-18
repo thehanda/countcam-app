@@ -27,8 +27,16 @@ const ApiJsonInputSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  console.log("--- API /api/upload-video POST request received ---");
+  console.log("--- API /api/upload-video POST request received (using Admin SDK path) ---");
   try {
+    if (!dbAdmin) {
+      console.error("CRITICAL_FAILURE (API Route): Firebase Admin Firestore instance (dbAdmin) is NOT AVAILABLE. This indicates a server-side Firebase Admin SDK initialization problem. Firestore operations will fail. Check server logs for 'firebaseAdmin.ts' errors.");
+      // Optionally, you could return a specific error immediately if dbAdmin is essential for all operations
+      // return NextResponse.json({ error: 'Server configuration error: Database unavailable.' }, { status: 503 });
+    } else {
+      console.log("INFO (API Route): Firebase Admin Firestore instance (dbAdmin) IS available.");
+    }
+
     const contentType = request.headers.get('content-type') || '';
     let videoDataUri: string;
     let direction: Direction;
@@ -69,9 +77,11 @@ export async function POST(request: NextRequest) {
       if (recDate) recordingDateStr = recDate;
       if (recTime) recordingTimeStr = recTime;
       
-      if (sourceString === 'ui') uploadSource = 'ui';
-      else if (sourceString === 'api') uploadSource = 'api';
-      else if (sourceString) {
+      if (sourceString === 'ui') {
+        uploadSource = 'ui';
+      } else if (sourceString === 'api') {
+        uploadSource = 'api';
+      } else if (sourceString) {
          console.warn(`Received unknown uploadSource in FormData: '${sourceString}'. Defaulting to 'api'.`);
          uploadSource = 'api'; // Default to api if unknown
       } else {
@@ -79,7 +89,7 @@ export async function POST(request: NextRequest) {
       }
       
       if (locNameString) locationName = locNameString;
-      else locationName = 'N/A';
+      else locationName = 'N/A'; // Default if not provided or empty
 
       console.log(`Extracted from FormData: videoFileName=${videoFileName}, direction=${direction}, recordingDate=${recordingDateStr}, recordingTime=${recordingTimeStr}, uploadSource=${uploadSource}, locationName=${locationName}`);
 
@@ -169,14 +179,14 @@ export async function POST(request: NextRequest) {
       locationName: locationName,
     };
     
-    console.log("Attempting to save to Firestore with Admin SDK. Data:", dataToSave);
+    console.log("Attempting to save to Firestore with Admin SDK. Data:", JSON.stringify(dataToSave, null, 2));
 
     try {
-      if (!dbAdmin) { // Check if Admin Firestore instance is available
-        console.error("Firebase Admin Firestore instance (dbAdmin) is not available. Check firebaseAdmin.ts initialization.");
-        throw new Error("Firebase Admin Firestore database instance is not initialized.");
+      if (!dbAdmin) {
+        console.error("CRITICAL_FAILURE (API Route - Save Block): Firebase Admin Firestore instance (dbAdmin) is NOT AVAILABLE at the time of saving. Firestore write will fail. Check server logs for 'firebaseAdmin.ts' initialization errors.");
+        throw new Error("Firebase Admin Firestore database instance is not initialized. Cannot save visitor log.");
       }
-      // Use Admin SDK for Firestore operations
+      console.log("INFO (API Route - Save Block): dbAdmin instance is available. Proceeding with .add()");
       const docRef = await dbAdmin.collection("visitor_logs").add(dataToSave);
       docRefId = docRef.id;
       console.log("Successfully saved to Firestore with Admin SDK. Document ID:", docRefId);
@@ -184,14 +194,15 @@ export async function POST(request: NextRequest) {
       console.error("--- Firestore Save Error (Admin SDK) ---");
       console.error("Failed to save data to Firestore. Error Name:", dbError.name);
       console.error("Error Message:", dbError.message);
-      console.error("Error Code:", dbError.code); // Firestore specific error code for Admin SDK
+      console.error("Error Code:", dbError.code); 
       console.error("Error Stack:", dbError.stack);
       if (dbError.cause) console.error("Cause:", dbError.cause);
-      // Continue even if DB save fails for now, but log it. Client will still get AI result.
+      // Client will still get AI result, but data won't be saved.
+      // Consider if the response to the client should indicate this failure.
     }
 
     const responsePayload: any = {
-      id: docRefId, 
+      id: docRefId, // Will be undefined if save failed
       ...result,
       videoFileName,
       processingTimestamp: processingTimestamp.toISOString(),
@@ -207,8 +218,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(responsePayload, { status: 200 });
 
   } catch (error: any) {
-    console.error('--- API Error processing video (Outer Catch Block) ---');
-    console.error(error);
+    console.error('--- API Error processing video (Outer Catch Block - Admin SDK path) ---');
+    console.error("Error Type:", Object.prototype.toString.call(error));
+    console.error("Error Is Instance of Error:", error instanceof Error);
+    if (error instanceof Error) {
+        console.error("Error Name:", error.name);
+        console.error("Error Message:", error.message);
+        console.error("Error Stack:", error.stack);
+    } else {
+        console.error("Raw Error Object/Value:", error);
+    }
+    
     let errorMessage = 'Failed to process video. An internal server error occurred.';
     let errorDetails: any = 'See server logs for more details.';
     let statusCode = 500;
@@ -217,15 +237,13 @@ export async function POST(request: NextRequest) {
         errorMessage = 'Invalid request body format.';
         errorDetails = error.format();
         statusCode = 400;
-    } else {
-        if (error.message) {
-            errorMessage = error.message;
-        }
+    } else if (error instanceof Error) {
+        errorMessage = error.message;
+    } else if (typeof error === 'string') {
+        errorMessage = error;
     }
     
-    console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${errorMessage}`);
-    if (error.stack) console.error('Error Stack:', error.stack);
-    if (error.cause) console.error('Error Cause:', error.cause);
+    console.error(`Detailed API Error Summary: Message - ${errorMessage}`);
 
     return NextResponse.json({ 
         error: 'Failed to process video.',

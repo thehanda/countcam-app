@@ -1,33 +1,39 @@
 import admin from 'firebase-admin';
-import { getApps } from 'firebase-admin/app';
+import { getApps, initializeApp as initializeAdminApp, type App as AdminApp } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore, type Firestore as AdminFirestore } from 'firebase-admin/firestore';
 
-// Ensure Firebase Admin SDK is initialized only once
+let adminApp: AdminApp | undefined = undefined;
+let dbAdminInstance: AdminFirestore | undefined = undefined;
+
+console.log("Attempting to initialize Firebase Admin SDK (firebaseAdmin.ts)...");
+
 if (!getApps().length) {
   try {
-    admin.initializeApp({
-      // projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, // Not needed when running in GCP environment
-      // credential: admin.credential.applicationDefault(), // Automatically inferred in GCP environments
-    });
-    console.log('Firebase Admin SDK initialized successfully.');
-  } catch (error) {
-    console.error('Error initializing Firebase Admin SDK:', error);
-    // Throwing the error might be too disruptive if other parts of the app don't rely on admin db
-    // Consider how to handle this if initialization fails.
+    // In App Hosting (GCP environment), initializeApp() without arguments
+    // should use the application default credentials.
+    adminApp = initializeAdminApp();
+    console.log('Firebase Admin SDK initialized successfully using default credentials. Project ID from Admin SDK:', adminApp.options.projectId);
+  } catch (error: any) {
+    console.error('CRITICAL: Error initializing Firebase Admin SDK (firebaseAdmin.ts):', error.message);
+    console.error('Admin SDK Initialization Error Stack:', error.stack);
+    // If initialization fails, dbAdminInstance will remain undefined.
   }
 } else {
-  console.log('Firebase Admin SDK already initialized.');
+  adminApp = getApps()[0]!; // Use the already initialized app
+  console.log('Firebase Admin SDK already initialized. Using existing app. Project ID from Admin SDK:', adminApp.options.projectId);
 }
 
-let dbAdminInstance: admin.firestore.Firestore;
-
-try {
-  dbAdminInstance = admin.firestore();
-  console.log('Firebase Admin Firestore instance obtained successfully.');
-} catch (error) {
-  console.error('Error obtaining Firebase Admin Firestore instance:', error);
-  // Fallback or rethrow, depending on how critical admin db is at startup
-  // For now, let it be undefined and handle it in the API route if it fails
+if (adminApp) {
+  try {
+    dbAdminInstance = getAdminFirestore(adminApp);
+    console.log('Firebase Admin Firestore instance obtained successfully (firebaseAdmin.ts).');
+  } catch (error: any) {
+    console.error('CRITICAL: Error obtaining Firebase Admin Firestore instance (firebaseAdmin.ts):', error.message);
+    console.error('Admin Firestore Instance Error Stack:', error.stack);
+    // If obtaining Firestore fails, dbAdminInstance will remain undefined.
+  }
+} else {
+  console.error("CRITICAL: Firebase Admin App (adminApp) is not available in firebaseAdmin.ts. Firestore instance cannot be obtained.");
 }
 
-
-export const dbAdmin = dbAdminInstance;
+export const dbAdmin = dbAdminInstance; // This might be undefined if init failed
