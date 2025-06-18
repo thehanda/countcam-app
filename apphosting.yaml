@@ -1,7 +1,7 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
-# Force rebuild: 2024-06-19T00:00:00Z
+# Force rebuild from Firebase Studio: 2024-06-19T00:00:00Z - UNIQUE STUDIO PUBLISH MARKER
 
 runConfig:
   # Increase this value if you'd like to automatically spin up
