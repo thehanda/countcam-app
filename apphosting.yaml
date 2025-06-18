@@ -2,7 +2,7 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
-# Force rebuild: 2024-06-18T13:00:00Z
+# Force rebuild: 2024-06-18T13:30:00Z
 
 runConfig:
   # Increase this value if you'd like to automatically spin up
@@ -48,4 +48,3 @@ env:
   - variable: GENKIT_ENV
     value: "prod"
     # All permissions set. Ready for final deploy.
-
