@@ -23,7 +23,7 @@ interface StatisticsData {
   id: string;
   visitorCount: number;
   countedDirection: Direction;
-  timestamp: Date;
+  timestamp: Date; // This is actually processingTimestamp
   videoFileName: string;
   recordingStartDateTime: Date | null;
   uploadSource: 'ui' | 'api';
@@ -46,7 +46,7 @@ export default function CountCamPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [allHistory, setAllHistory] = useState<StatisticsData[]>([]);
-  const [uiHistory, setUiHistory] = useState<StatisticsData[]>([]);
+  const uiHistory = useMemo(() => allHistory.filter(entry => entry.uploadSource === 'ui'), [allHistory]);
 
   const [selectedDirection, setSelectedDirection] = useState<Direction>("entering");
 
@@ -62,10 +62,14 @@ export default function CountCamPage() {
 
   useEffect(() => {
     const q = query(collection(db, "visitor_logs"), orderBy("processingTimestamp", "desc"));
+    console.log("Setting up Firestore listener...");
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedHistory: StatisticsData[] = [];
+      console.log(`Firestore snapshot received. Document count: ${querySnapshot.size}`);
       querySnapshot.forEach((doc: DocumentData) => {
         const data = doc.data();
+        // console.log(`Doc ID: ${doc.id}, Data:`, data); // Log individual document data
+
         const recordingStartDateTime = data.recordingStartDateTime instanceof Timestamp
                                        ? data.recordingStartDateTime.toDate()
                                        : (data.recordingStartDateTime && typeof data.recordingStartDateTime === 'string' ? parseISO(data.recordingStartDateTime) : null);
@@ -73,7 +77,7 @@ export default function CountCamPage() {
         const processingTimestamp = data.processingTimestamp instanceof Timestamp
                                   ? data.processingTimestamp.toDate()
                                   : (data.processingTimestamp && typeof data.processingTimestamp === 'string' ? parseISO(data.processingTimestamp) : new Date());
-        
+
         const uploadSource = data.uploadSource === 'ui' || data.uploadSource === 'api' ? data.uploadSource : 'api';
 
 
@@ -88,8 +92,8 @@ export default function CountCamPage() {
           locationName: data.locationName || 'N/A',
         });
       });
+      console.log("Fetched history from Firestore:", fetchedHistory);
       setAllHistory(fetchedHistory);
-      setUiHistory(fetchedHistory.filter(entry => entry.uploadSource === 'ui'));
     }, (err) => {
       console.error("Error fetching history from Firestore:", err);
       setError("Failed to load processing history from the database.");
@@ -100,8 +104,11 @@ export default function CountCamPage() {
       });
     });
 
-    return () => unsubscribe();
-  }, []); // Changed dependency array to empty
+    return () => {
+      console.log("Cleaning up Firestore listener.");
+      unsubscribe();
+    }
+  }, []);
 
   const parseDateTimeFromFilename = (filename: string): { date?: string; time?: string } => {
     const patterns = [
@@ -113,7 +120,14 @@ export default function CountCamPage() {
     for (const pattern of patterns) {
         const match = filename.match(pattern);
         if (match && match.groups) {
-            const { year, month, day, hour, minute } = match.groups;
+            // Destructure carefully, as not all groups might be present or named consistently if patterns change.
+            const year = match.groups['year'];
+            const month = match.groups['2'] || match.groups['month']; // Handle different capturing group names/indices
+            const day = match.groups['3'] || match.groups['day'];
+            const hour = match.groups['4'] || match.groups['hour'];
+            const minute = match.groups['5'] || match.groups['minute'];
+            // Seconds (match.groups['6'] or match.groups['second']) are parsed but not strictly used for yyyy-MM-dd HH:mm format.
+
             if (year && month && day && hour && minute) {
                 const parsedDate = dateParseFn(`${year}-${month}-${day} ${hour}:${minute}`, 'yyyy-MM-dd HH:mm', new Date());
                 if (isValidDate(parsedDate)) {
@@ -136,7 +150,7 @@ export default function CountCamPage() {
       const newBatchFiles: BatchFile[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (file.size > 50 * 1024 * 1024) {
+        if (file.size > 50 * 1024 * 1024) { // 50MB limit
           setError(`ファイル "${file.name}" はサイズが大きすぎます (最大50MB)。スキップされます。`);
           toast({ variant: "destructive", title: "ファイルサイズ超過", description: `ファイル "${file.name}" は50MBを超えています。` });
           continue;
@@ -163,8 +177,6 @@ export default function CountCamPage() {
   const processSingleFileViaAPI = async (batchFile: BatchFile, recordingDateToUse: string, recordingTimeToUse: string, locationNameToUse: string) => {
     setProcessing(true);
     setError(null);
-    // Do not clear lastProcessedResult here if we want to keep showing it until the next successful UI upload
-    // setLastProcessedResult(null); 
 
     const formData = new FormData();
     formData.append("videoFile", batchFile.file);
@@ -173,6 +185,7 @@ export default function CountCamPage() {
     formData.append("recordingTime", recordingTimeToUse);
     formData.append("uploadSource", "ui");
     formData.append("locationName", locationNameToUse || "N/A");
+
 
     try {
       const response = await fetch('/api/upload-video', {
@@ -190,23 +203,23 @@ export default function CountCamPage() {
       const apiProcessingTimestamp = resultData.processingTimestamp ? parseISO(resultData.processingTimestamp) : new Date();
 
       const newEntry: StatisticsData = {
-        id: resultData.id || Date.now().toString(), // Firestore doc ID will be available if save is successful
+        id: resultData.id || Date.now().toString(),
         visitorCount: resultData.visitorCount,
         countedDirection: resultData.countedDirection,
         videoFileName: resultData.videoFileName || batchFile.file.name,
         recordingStartDateTime: apiRecordingStartDateTime && isValidDate(apiRecordingStartDateTime) ? apiRecordingStartDateTime : null,
         timestamp: isValidDate(apiProcessingTimestamp) ? apiProcessingTimestamp : new Date(),
-        uploadSource: 'ui',
+        uploadSource: 'ui', // Explicitly 'ui' for this function
         locationName: resultData.locationName || "N/A",
       };
-      setLastProcessedResult(newEntry); // Update last processed result for UI uploads
+      setLastProcessedResult(newEntry); 
 
       toast({
         title: "処理完了",
         description: `${newEntry.videoFileName} (${newEntry.locationName}) の訪問者数 (記録日時: ${newEntry.recordingStartDateTime ? format(newEntry.recordingStartDateTime, "PP p") : 'N/A'}, 方向: ${getDirectionLabel(newEntry.countedDirection)}) は ${newEntry.visitorCount} です。データは保存されました。`,
         variant: "default"
       });
-      return true; // Indicate success
+      return true; 
     } catch (err) {
       console.error(`動画 ${batchFile.file.name} のAPI経由処理エラー:`, err);
       const errorMessage = err instanceof Error ? err.message : "不明なエラーが発生しました。";
@@ -216,7 +229,7 @@ export default function CountCamPage() {
         title: `エラー: ${batchFile.file.name}`,
         description: `訪問者数のカウントに失敗しました。 ${errorMessage}`,
       });
-      return false; // Indicate failure
+      return false; 
     } finally {
       setProcessing(false);
     }
@@ -251,11 +264,10 @@ export default function CountCamPage() {
     }
 
     setIsBatchProcessing(false);
-    setSelectedFiles([]); // Clear selected files after batch processing
-    if (fileInputRef.current) { // Reset file input
+    setSelectedFiles([]); 
+    if (fileInputRef.current) { 
       fileInputRef.current.value = "";
     }
-    // Optionally reset formLocationName("") here if desired after a batch
     toast({
         title: "バッチ処理完了",
         description: `${successCount} ファイル成功, ${errorCount} ファイル失敗。結果は保存されました。`,
@@ -283,23 +295,21 @@ export default function CountCamPage() {
     const csvHeader = ["録画日", "録画開始時刻", "地点名", "入場者数"];
     const csvRows = [csvHeader.join(",")];
 
-    // Sort by recording date/time before generating CSV rows
     apiHistory.sort((a, b) => {
         if (a.recordingStartDateTime && b.recordingStartDateTime) {
             return a.recordingStartDateTime.getTime() - b.recordingStartDateTime.getTime();
-        } else if (a.recordingStartDateTime) { // a has date, b doesn't, so a comes first
+        } else if (a.recordingStartDateTime) { 
             return -1;
-        } else if (b.recordingStartDateTime) { // b has date, a doesn't, so b comes first
+        } else if (b.recordingStartDateTime) { 
             return 1;
         }
-        return 0; // both null or invalid
+        return 0; 
     });
 
     for (const entry of apiHistory) {
       const recDate = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "yyyy-MM-dd") : 'N/A';
       const recTime = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "HH:mm") : 'N/A';
       const location = entry.locationName || 'N/A';
-      // Ensure CSV cells with commas or quotes are properly escaped
       const escapeCSV = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
       
       csvRows.push([
@@ -310,7 +320,7 @@ export default function CountCamPage() {
       ].join(","));
     }
 
-    const csvString = "\uFEFF" + csvRows.join("\n"); // Add BOM for Excel
+    const csvString = "\uFEFF" + csvRows.join("\n"); 
     const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -324,6 +334,12 @@ export default function CountCamPage() {
     URL.revokeObjectURL(url);
     toast({ title: "APIデータCSVダウンロード完了", description: "APIアップロード (入場者) のレポートがダウンロードされました。" });
   };
+
+  // Debug log for button state
+  const apiDataForCSV = allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering');
+  console.log("Current allHistory:", allHistory);
+  console.log("Filtered API data for CSV button:", apiDataForCSV);
+  console.log("Is API CSV button disabled?", isBatchProcessing || apiDataForCSV.length === 0);
 
 
   return (
@@ -395,7 +411,12 @@ export default function CountCamPage() {
           )}
 
           <div className="py-4 text-center">
-             <Button variant="outline" size="lg" onClick={handleDownloadAPIDataCSV} disabled={isBatchProcessing || allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering').length === 0} aria-label="APIアップロード 訪問者レポートCSVをダウンロード">
+             <Button 
+                variant="outline" 
+                size="lg" 
+                onClick={handleDownloadAPIDataCSV} 
+                disabled={isBatchProcessing || apiDataForCSV.length === 0} 
+                aria-label="APIアップロード 訪問者レポートCSVをダウンロード">
                <Download className="mr-2 h-5 w-5" />
                APIアップロードレポート (CSV)
              </Button>
@@ -404,11 +425,25 @@ export default function CountCamPage() {
           {uiHistory.length > 0 && (
             <Card className="shadow-lg">
               <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex-grow"> <CardTitle className="text-2xl flex items-center gap-2"> <ListChecks className="text-primary" /> 処理履歴 (Web UI アップロード) </CardTitle> <CardDescription> このウェブインターフェース経由でアップロードされた動画のカウント。精度検証用。 </CardDescription> </div>
+                <div className="flex-grow"> 
+                    <CardTitle className="text-2xl flex items-center gap-2"> 
+                        <ListChecks className="text-primary" /> 処理履歴 (Web UI アップロード) 
+                    </CardTitle> 
+                    <CardDescription> このウェブインターフェース経由でアップロードされた動画のカウント。精度検証用。 </CardDescription> 
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader> <TableRow> <TableHead>動画ファイル</TableHead> <TableHead>地点名</TableHead> <TableHead className="text-center">方向</TableHead> <TableHead className="text-center">訪問者数</TableHead> <TableHead>録画開始日時</TableHead> <TableHead className="text-right">処理日時</TableHead> </TableRow> </TableHeader>
+                  <TableHeader> 
+                    <TableRow> 
+                        <TableHead>動画ファイル</TableHead> 
+                        <TableHead>地点名</TableHead> 
+                        <TableHead className="text-center">方向</TableHead> 
+                        <TableHead className="text-center">訪問者数</TableHead> 
+                        <TableHead>録画開始日時</TableHead> 
+                        <TableHead className="text-right">処理日時</TableHead> 
+                    </TableRow> 
+                  </TableHeader>
                   <TableBody>
                     {uiHistory.map((entry) => (
                       <TableRow key={entry.id}>
@@ -433,3 +468,4 @@ export default function CountCamPage() {
     </div>
   );
 }
+
