@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     let recordingDateStr: string | undefined;
     let recordingTimeStr: string | undefined;
     let recordingStartDateTime: Date | undefined;
-    let uploadSource: 'ui' | 'api' = 'api'; // Default to 'api'
-    let locationName: string = 'N/A'; // Default location name
+    let uploadSource: 'ui' | 'api' = 'api';
+    let locationName: string = 'N/A';
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -64,6 +64,8 @@ export async function POST(request: NextRequest) {
       if (recDate) recordingDateStr = recDate;
       if (recTime) recordingTimeStr = recTime;
       if (sourceString === 'ui') uploadSource = 'ui';
+      else if (sourceString === 'api') uploadSource = 'api'; // Explicitly set if provided
+      
       if (locNameString) locationName = locNameString;
 
 
@@ -118,10 +120,6 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn(`Could not parse recordingDate '${recordingDateStr}' and recordingTime '${recordingTimeStr}' into a valid date.`);
       }
-    } else if (!recordingDateStr && !recordingTimeStr) {
-        // If neither date nor time is provided, attempt to use current datetime as fallback if explicitly needed for a UI upload with no filename parsing.
-        // For API uploads, it's assumed filename parsing or explicit fallback is handled by client/script or it's okay to be null.
-        // The current behavior is to allow null recordingStartDateTime if not provided or parsed.
     }
 
 
@@ -134,7 +132,6 @@ export async function POST(request: NextRequest) {
 
     const result: CountVisitorsOutput = await countVisitors(input);
     
-    // Save to Firestore
     let docRefId: string | undefined = undefined;
     try {
       const docRef = await addDoc(collection(db, "visitor_logs"), {
@@ -143,19 +140,21 @@ export async function POST(request: NextRequest) {
         videoFileName: videoFileName || 'N/A',
         recordingStartDateTime: recordingStartDateTime ? Timestamp.fromDate(recordingStartDateTime) : null,
         processingTimestamp: Timestamp.fromDate(processingTimestamp),
-        rawVideoDataUriProvided: videoDataUri.length > 200 ? videoDataUri.substring(0,100) + "... (truncated)" : videoDataUri,
+        // rawVideoDataUriProvided: videoDataUri.length > 200 ? videoDataUri.substring(0,100) + "... (truncated)" : videoDataUri, // Potentially large, consider removing or further truncating if not essential for logs
         uploadSource: uploadSource,
         locationName: locationName,
       });
       docRefId = docRef.id;
-    } catch (dbError) {
+    } catch (dbError: any) {
       console.error("--- Firestore Save Error ---");
-      console.error(dbError);
+      console.error("Message:", dbError.message);
+      console.error("Stack:", dbError.stack);
+      if (dbError.cause) console.error("Cause:", dbError.cause);
       // Continue even if DB save fails, but log it. Client will still get AI result.
     }
 
     const responsePayload: any = {
-      id: docRefId, // Include Firestore document ID in response
+      id: docRefId, 
       ...result,
       videoFileName,
       processingTimestamp: processingTimestamp.toISOString(),
@@ -172,8 +171,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('--- API Error processing video (Raw Error Object) ---');
     console.error(error);
-    console.error('--- End of Raw Error Object ---');
-
     let errorMessage = 'Failed to process video. An internal server error occurred.';
     let errorDetails: any = 'See server logs for more details.';
     let statusCode = 500;
@@ -182,21 +179,15 @@ export async function POST(request: NextRequest) {
         errorMessage = 'Invalid request body format.';
         errorDetails = error.format();
         statusCode = 400;
-        console.error('Error Type: ZodError');
     } else {
         if (error.message) {
             errorMessage = error.message;
         }
-        if (error.stack) {
-            console.error('Error Stack:', error.stack);
-        }
-        if (error.cause) {
-            console.error('Error Cause:', error.cause);
-        }
-        errorDetails = String(error); // Keep it simple for non-Zod errors
     }
     
-    console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${error.message || 'N/A'}`);
+    console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${errorMessage}`);
+    if (error.stack) console.error('Error Stack:', error.stack);
+    if (error.cause) console.error('Error Cause:', error.cause);
 
     return NextResponse.json({ 
         error: 'Failed to process video.',

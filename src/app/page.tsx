@@ -10,13 +10,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Users, CalendarDays, UploadCloud, FileVideo, AlertCircle, CheckCircle2, ListChecks, Download, Video, Files, DatabaseZap } from "lucide-react";
+import { Loader2, Users, CalendarDays, UploadCloud, AlertCircle, CheckCircle2, ListChecks, Download, Video, Files, DatabaseZap, ArrowRightLeft } from "lucide-react";
 import { type Direction } from "@/ai/types";
 import { format, parseISO, isValid as isValidDate, parse as dateParseFn } from "date-fns";
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, query, orderBy, onSnapshot, Timestamp, type DocumentData, where } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, Timestamp, type DocumentData } from "firebase/firestore";
 
 
 interface StatisticsData {
@@ -45,8 +45,8 @@ export default function CountCamPage() {
   const [lastProcessedResult, setLastProcessedResult] = useState<StatisticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  const [allHistory, setAllHistory] = useState<StatisticsData[]>([]); // Stores all data from Firestore
-  const [uiHistory, setUiHistory] = useState<StatisticsData[]>([]); // For "Processing History" table (UI uploads)
+  const [allHistory, setAllHistory] = useState<StatisticsData[]>([]);
+  const [uiHistory, setUiHistory] = useState<StatisticsData[]>([]); 
   
   const [selectedDirection, setSelectedDirection] = useState<Direction>("entering");
   
@@ -80,7 +80,7 @@ export default function CountCamPage() {
           videoFileName: data.videoFileName || 'N/A',
           recordingStartDateTime: recordingStartDateTime && isValidDate(recordingStartDateTime) ? recordingStartDateTime : null,
           timestamp: isValidDate(processingTimestamp) ? processingTimestamp : new Date(),
-          uploadSource: data.uploadSource || 'api', // Default to 'api' if undefined
+          uploadSource: data.uploadSource || 'api',
           locationName: data.locationName || 'N/A',
         });
       });
@@ -109,18 +109,8 @@ export default function CountCamPage() {
     for (const pattern of patterns) {
         const match = filename.match(pattern);
         if (match && match.groups) {
-            const { year, groups } = match;
-            if (match.length >= 7) { // Ensure enough groups are captured
-                let month, day, hour, minute;
-                 // Check if named groups are present, otherwise rely on index
-                if (groups && groups.month && groups.day && groups.hour && groups.minute) {
-                     month = groups.month; day = groups.day; hour = groups.hour; minute = groups.minute;
-                } else if (match[2] && match[3] && match[4] && match[5]) { // Fallback to indexed groups
-                     month = match[2]; day = match[3]; hour = match[4]; minute = match[5];
-                } else {
-                    continue; // Not enough data to form date/time
-                }
-
+            const { year, month, day, hour, minute } = match.groups;
+            if (year && month && day && hour && minute) {
                 const parsedDate = dateParseFn(`${year}-${month}-${day} ${hour}:${minute}`, 'yyyy-MM-dd HH:mm', new Date());
                 if (isValidDate(parsedDate)) {
                     return {
@@ -128,16 +118,6 @@ export default function CountCamPage() {
                         time: format(parsedDate, "HH:mm"),
                     };
                 }
-            }
-        } else if (match && match.length >= 6) { // Handle non-named group patterns if necessary
-            const year_val = match[1]; const month_val = match[2]; const day_val = match[3];
-            const hour_val = match[4]; const minute_val = match[5];
-            const parsedDateObj = dateParseFn(`${year_val}-${month_val}-${day_val} ${hour_val}:${minute_val}`, 'yyyy-MM-dd HH:mm', new Date());
-             if (isValidDate(parsedDateObj)) {
-                return {
-                    date: format(parsedDateObj, "yyyy-MM-dd"),
-                    time: format(parsedDateObj, "HH:mm"),
-                };
             }
         }
     }
@@ -153,11 +133,11 @@ export default function CountCamPage() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (file.size > 50 * 1024 * 1024) { 
-          setError(`File "${file.name}" is too large (max 50MB). It will be skipped.`);
+          setError(`ファイル "${file.name}" はサイズが大きすぎます (最大50MB)。スキップされます。`);
           continue; 
         }
         if (!file.type.startsWith("video/")) {
-          setError(`File "${file.name}" is not a valid video type. It will be skipped. Recommended: MP4, MOV, AVI.`);
+          setError(`ファイル "${file.name}" は有効な動画形式ではありません。スキップされます。推奨: MP4, MOV, AVI`);
           continue;
         }
         const { date: parsedDate, time: parsedTime } = parseDateTimeFromFilename(file.name);
@@ -165,9 +145,9 @@ export default function CountCamPage() {
       }
       setSelectedFiles(newBatchFiles);
       if (newBatchFiles.length === 0 && files.length > 0) {
-        toast({ variant: "destructive", title: "No valid files selected", description: "All selected files were skipped due to size or type errors."});
+        toast({ variant: "destructive", title: "有効なファイルが選択されていません", description: "選択された全てのファイルがサイズまたは形式エラーのためスキップされました。" });
       } else if (newBatchFiles.length < files.length) {
-        toast({ variant: "default", title: "Some files skipped", description: "Some files were skipped due to size or type errors. Check error messages."});
+        toast({ variant: "default", title: "一部ファイルがスキップされました", description: "一部のファイルがサイズまたは形式エラーのためスキップされました。エラーメッセージをご確認ください。" });
       }
     } else {
       setSelectedFiles([]);
@@ -184,8 +164,8 @@ export default function CountCamPage() {
     formData.append("direction", selectedDirection);
     formData.append("recordingDate", recordingDateToUse);
     formData.append("recordingTime", recordingTimeToUse);
-    formData.append("uploadSource", "ui"); // Indicate upload is from UI
-    // formData.append("locationName", "Main Entrance"); // Example: if location is fixed for UI or add input
+    formData.append("uploadSource", "ui"); 
+    // formData.append("locationName", "Main Entrance"); // UIで地点名を入力する場合
 
     try {
       const response = await fetch('/api/upload-video', {
@@ -196,7 +176,7 @@ export default function CountCamPage() {
       const resultData = await response.json();
 
       if (!response.ok) {
-        throw new Error(resultData.error || resultData.messageFromServer || `API request failed with status ${response.status}`);
+        throw new Error(resultData.error || resultData.messageFromServer || `APIリクエストがステータス ${response.status}で失敗しました`);
       }
       
       const apiRecordingStartDateTime = resultData.recordingStartDateTime ? parseISO(resultData.recordingStartDateTime) : null;
@@ -215,19 +195,19 @@ export default function CountCamPage() {
       setLastProcessedResult(newEntry);
       
       toast({
-        title: "Processing Complete",
-        description: `Visitor count for ${newEntry.videoFileName} (Recorded: ${newEntry.recordingStartDateTime ? format(newEntry.recordingStartDateTime, "PP p") : 'N/A'}, Direction: ${getDirectionLabel(newEntry.countedDirection)}) is ${newEntry.visitorCount}. Data saved.`,
+        title: "処理完了",
+        description: `${newEntry.videoFileName} の訪問者数 (記録日時: ${newEntry.recordingStartDateTime ? format(newEntry.recordingStartDateTime, "PP p") : 'N/A'}, 方向: ${getDirectionLabel(newEntry.countedDirection)}) は ${newEntry.visitorCount} です。データは保存されました。`,
         variant: "default"
       });
       return true;
     } catch (err) {
-      console.error(`Error processing video ${batchFile.file.name} via API:`, err);
-      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
-      setError(`Failed to count visitors for ${batchFile.file.name}: ${errorMessage}.`);
+      console.error(`動画 ${batchFile.file.name} のAPI経由処理エラー:`, err);
+      const errorMessage = err instanceof Error ? err.message : "不明なエラーが発生しました。";
+      setError(`${batchFile.file.name} の訪問者数カウントに失敗しました: ${errorMessage}.`);
       toast({
         variant: "destructive",
-        title: `Error: ${batchFile.file.name}`,
-        description: `Failed to count visitors. ${errorMessage}`,
+        title: `エラー: ${batchFile.file.name}`,
+        description: `訪問者数のカウントに失敗しました。 ${errorMessage}`,
       });
       return false;
     } finally {
@@ -238,7 +218,7 @@ export default function CountCamPage() {
   const handleBatchSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (selectedFiles.length === 0) {
-      setError("Please select video files to upload.");
+      setError("アップロードする動画ファイルを選択してください。");
       return;
     }
 
@@ -269,8 +249,8 @@ export default function CountCamPage() {
       fileInputRef.current.value = ""; 
     }
     toast({
-        title: "Batch Processing Finished",
-        description: `${successCount} file(s) processed successfully, ${errorCount} file(s) failed. Results saved.`,
+        title: "バッチ処理完了",
+        description: `${successCount} ファイル成功, ${errorCount} ファイル失敗。結果は保存されました。`,
         variant: successCount > 0 && errorCount === 0 ? "default" : (errorCount > 0 ? "destructive" : "default")
     });
   };
@@ -288,44 +268,43 @@ export default function CountCamPage() {
     const apiHistory = allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering');
     
     if (apiHistory.length === 0) {
-      toast({ variant: "default", title: "No API Data", description: "There is no data from API uploads (entering direction) to export." });
+      toast({ variant: "default", title: "APIデータなし", description: "エクスポート対象のAPIアップロードデータ (入場方向) がありません。" });
       return;
     }
 
-    const csvRows = ["Recording Date,Recording Start Time,Location Name,Entering Visitors"];
+    const csvRows = ["録画日,録画開始時刻,地点名,入場者数"];
     
-    // Sort by recordingStartDateTime ascending
     apiHistory.sort((a, b) => {
         if (a.recordingStartDateTime && b.recordingStartDateTime) {
             return a.recordingStartDateTime.getTime() - b.recordingStartDateTime.getTime();
         } else if (a.recordingStartDateTime) {
-            return -1; // a first
+            return -1; 
         } else if (b.recordingStartDateTime) {
-            return 1; // b first
+            return 1; 
         }
-        return 0; // both null or equal
+        return 0; 
     });
 
     for (const entry of apiHistory) {
       const recDate = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "yyyy-MM-dd") : 'N/A';
       const recTime = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "HH:mm") : 'N/A';
       const location = entry.locationName || 'N/A';
-      csvRows.push(`${recDate},${recTime},"${location}",${entry.visitorCount}`);
+      csvRows.push(`${recDate},${recTime},"${location.replace(/"/g, '""')}",${entry.visitorCount}`);
     }
 
     const csvString = csvRows.join("\n");
-    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`\uFEFF${csvString}`], { type: "text/csv;charset=utf-8;" }); // BOM for Excel
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
     const reportDateStr = format(new Date(), "yyyyMMdd");
-    link.setAttribute("download", `CountCam_API_EnteringVisitors_Report_${reportDateStr}.csv`);
+    link.setAttribute("download", `CountCam_API_入場者レポート_${reportDateStr}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast({ title: "API Data CSV Downloaded", description: "Report for API uploads (entering visitors) has been downloaded." });
+    toast({ title: "APIデータCSVダウンロード完了", description: "APIアップロード (入場者) のレポートがダウンロードされました。" });
   };
 
   return (
@@ -337,71 +316,71 @@ export default function CountCamPage() {
             <CardHeader>
               <CardTitle className="text-2xl flex items-center gap-2">
                 <UploadCloud className="text-primary" />
-                Upload Video (via Web UI)
+                動画アップロード (Web UI経由)
               </CardTitle>
               <CardDescription>
-                Select video file(s). Max 50MB. Results saved centrally for UI validation.
-                Recording date/time extracted from filename (e.g., YYYYMMDD_HHMMSS) or use fallback.
+                動画ファイルを選択してください (最大50MB)。結果は中央で保存され、UIでの精度検証に使用されます。
+                録画日時はファイル名 (例: YYYYMMDD_HHMMSS) から解析されるか、フォールバック値が使用されます。
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleBatchSubmit}>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="videoFile">Video File(s)</Label>
+                  <Label htmlFor="videoFile">動画ファイル</Label>
                   <Input id="videoFile" type="file" accept="video/*" multiple onChange={handleFileChange} disabled={processing || isBatchProcessing} ref={fileInputRef} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
-                  {selectedFiles.length > 0 && !error && ( <div className="text-sm text-muted-foreground flex items-center gap-2 p-2 border rounded-md bg-secondary/50"> <Files className="w-5 h-5 text-primary" /> <span>Selected: {selectedFiles.length} file(s)</span> </div> )}
-                  {selectedFiles.map((batchFile, index) => ( <div key={index} className="text-xs text-muted-foreground ml-2"> - {batchFile.file.name} {batchFile.parsedDate && batchFile.parsedTime && ` (Parsed: ${batchFile.parsedDate} ${batchFile.parsedTime})`} </div> ))}
+                  {selectedFiles.length > 0 && !error && ( <div className="text-sm text-muted-foreground flex items-center gap-2 p-2 border rounded-md bg-secondary/50"> <Files className="w-5 h-5 text-primary" /> <span>選択中: {selectedFiles.length} ファイル</span> </div> )}
+                  {selectedFiles.map((batchFile, index) => ( <div key={index} className="text-xs text-muted-foreground ml-2"> - {batchFile.file.name} {batchFile.parsedDate && batchFile.parsedTime && ` (解析日時: ${batchFile.parsedDate} ${batchFile.parsedTime})`} </div> ))}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2"> <Label htmlFor="recordingDate">Fallback Recording Start Date</Label> <Input id="recordingDate" type="date" value={formRecordingDate} onChange={(e) => setFormRecordingDate(e.target.value)} disabled={processing || isBatchProcessing} required /> </div>
-                  <div className="space-y-2"> <Label htmlFor="recordingTime">Fallback Recording Start Time</Label> <Input id="recordingTime" type="time" value={formRecordingTime} onChange={(e) => setFormRecordingTime(e.target.value)} disabled={processing || isBatchProcessing} required /> </div>
+                  <div className="space-y-2"> <Label htmlFor="recordingDate">フォールバック録画開始日</Label> <Input id="recordingDate" type="date" value={formRecordingDate} onChange={(e) => setFormRecordingDate(e.target.value)} disabled={processing || isBatchProcessing} required /> </div>
+                  <div className="space-y-2"> <Label htmlFor="recordingTime">フォールバック録画開始時刻</Label> <Input id="recordingTime" type="time" value={formRecordingTime} onChange={(e) => setFormRecordingTime(e.target.value)} disabled={processing || isBatchProcessing} required /> </div>
                 </div>
                 <div className="space-y-3">
-                  <Label className="text-base font-medium">Counting Direction (for all files in batch)</Label>
+                  <Label className="text-base font-medium">カウント方向 (バッチ内の全ファイルに適用)</Label>
                   <RadioGroup value={selectedDirection} onValueChange={(value) => setSelectedDirection(value as Direction)} className="grid grid-cols-1 sm:grid-cols-2 gap-4" disabled={processing || isBatchProcessing}>
-                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all"> <RadioGroupItem value="entering" id="dir-entering" /> <Label htmlFor="dir-entering" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base"> <DatabaseZap className="w-5 h-5 text-green-500" /> R→L </Label> </div>
-                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all"> <RadioGroupItem value="exiting" id="dir-exiting" /> <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base"> <DatabaseZap className="w-5 h-5 text-red-500" /> L→R </Label> </div>
+                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all"> <RadioGroupItem value="entering" id="dir-entering" /> <Label htmlFor="dir-entering" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base"> <ArrowRightLeft className="w-5 h-5 text-green-500" /> R→L </Label> </div>
+                    <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/5 has-[input:checked]:bg-primary/10 has-[input:checked]:border-primary transition-all"> <RadioGroupItem value="exiting" id="dir-exiting" /> <Label htmlFor="dir-exiting" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base"> <ArrowRightLeft className="w-5 h-5 text-red-500" /> L→R </Label> </div>
                   </RadioGroup>
                 </div>
-                {isBatchProcessing && ( <div className="space-y-2"> <Label>Batch Progress (File {currentBatchFileIndex + 1} of {selectedFiles.length}): {selectedFiles[currentBatchFileIndex]?.file.name}</Label> <Progress value={batchProgress} className="w-full" /> </div> )}
+                {isBatchProcessing && ( <div className="space-y-2"> <Label>バッチ処理進捗 ({currentBatchFileIndex + 1} / {selectedFiles.length} ファイル): {selectedFiles[currentBatchFileIndex]?.file.name}</Label> <Progress value={batchProgress} className="w-full" /> </div> )}
               </CardContent>
               <CardFooter>
                 <Button type="submit" disabled={processing || isBatchProcessing || selectedFiles.length === 0} className="w-full">
-                  {isBatchProcessing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing Batch... </> ) : processing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing File... </> ) : ( <> <Users className="mr-2 h-4 w-4" /> {selectedFiles.length > 1 ? `Process ${selectedFiles.length} Files` : (selectedFiles.length === 1 ? "Process Selected File" : "Count Visitors (Select Files)") } </> )}
+                  {isBatchProcessing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> バッチ処理中... </> ) : processing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> ファイル処理中... </> ) : ( <> <Users className="mr-2 h-4 w-4" /> {selectedFiles.length > 1 ? `${selectedFiles.length} ファイルを処理` : (selectedFiles.length === 1 ? "選択したファイルを処理" : "訪問者をカウント (ファイル選択)") } </> )}
                 </Button>
               </CardFooter>
             </form>
           </Card>
 
-          {error && ( <Alert variant="destructive" className="shadow-md"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Error</AlertTitle> <AlertDescription>{error}</AlertDescription> </Alert> )}
+          {error && ( <Alert variant="destructive" className="shadow-md"> <AlertCircle className="h-4 w-4" /> <AlertTitle>エラー</AlertTitle> <AlertDescription>{error}</AlertDescription> </Alert> )}
           
           {lastProcessedResult && !processing && !isBatchProcessing && (
             <Card className="shadow-lg bg-gradient-to-br from-card to-secondary/30">
-              <CardHeader> <CardTitle className="text-2xl flex items-center text-accent-foreground gap-2"> <CheckCircle2 className="text-accent" /> Last Processed Result (UI Upload) </CardTitle> <CardDescription className="text-accent-foreground/80"> Analysis complete for: <strong>{lastProcessedResult.videoFileName}</strong> </CardDescription> </CardHeader>
+              <CardHeader> <CardTitle className="text-2xl flex items-center text-accent-foreground gap-2"> <CheckCircle2 className="text-accent" /> 最新の処理結果 (UIアップロード) </CardTitle> <CardDescription className="text-accent-foreground/80"> 解析完了: <strong>{lastProcessedResult.videoFileName}</strong> </CardDescription> </CardHeader>
               <CardContent className="space-y-4 text-lg">
-                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Users className="h-6 w-6 text-accent" /> <span className="font-medium text-foreground">Total Visitors:</span> </div> <span className="font-bold text-3xl text-accent">{lastProcessedResult.visitorCount}</span> </div>
-                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> {lastProcessedResult.countedDirection === 'entering' && <DatabaseZap className="h-6 w-6 text-primary" />} {lastProcessedResult.countedDirection === 'exiting' && <DatabaseZap className="h-6 w-6 text-primary" />} <span className="font-medium text-foreground">Counted Direction:</span> </div> <span className="font-semibold text-primary">{getDirectionLabel(lastProcessedResult.countedDirection)}</span> </div>
-                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Video className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">Recording Started:</span> </div> <span className="font-semibold text-primary">{lastProcessedResult.recordingStartDateTime && isValidDate(lastProcessedResult.recordingStartDateTime) ? format(lastProcessedResult.recordingStartDateTime, "PP p") : 'N/A'}</span> </div>
-                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <CalendarDays className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">Processed On:</span> </div> <span className="font-semibold text-primary">{format(lastProcessedResult.timestamp, "PP p")}</span> </div>
+                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Users className="h-6 w-6 text-accent" /> <span className="font-medium text-foreground">合計訪問者数:</span> </div> <span className="font-bold text-3xl text-accent">{lastProcessedResult.visitorCount}</span> </div>
+                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <ArrowRightLeft className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">カウント方向:</span> </div> <span className="font-semibold text-primary">{getDirectionLabel(lastProcessedResult.countedDirection)}</span> </div>
+                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Video className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">録画開始日時:</span> </div> <span className="font-semibold text-primary">{lastProcessedResult.recordingStartDateTime && isValidDate(lastProcessedResult.recordingStartDateTime) ? format(lastProcessedResult.recordingStartDateTime, "PP p") : 'N/A'}</span> </div>
+                <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <CalendarDays className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">処理日時:</span> </div> <span className="font-semibold text-primary">{format(lastProcessedResult.timestamp, "PP p")}</span> </div>
               </CardContent>
             </Card>
           )}
 
           <div className="py-4 text-center">
-             <Button variant="outline" size="lg" onClick={handleDownloadAPIDataCSV} disabled={isBatchProcessing || allHistory.filter(entry => entry.uploadSource === 'api').length === 0} aria-label="Download API Uploads Visitor Report CSV">
+             <Button variant="outline" size="lg" onClick={handleDownloadAPIDataCSV} disabled={isBatchProcessing || allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering').length === 0} aria-label="APIアップロード 訪問者レポートCSVをダウンロード">
                <Download className="mr-2 h-5 w-5" />
-               Download API Uploads Report (CSV)
+               APIアップロードレポート (CSV)
              </Button>
           </div>
 
           {uiHistory.length > 0 && (
             <Card className="shadow-lg">
               <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex-grow"> <CardTitle className="text-2xl flex items-center gap-2"> <ListChecks className="text-primary" /> Processing History (Web UI Uploads) </CardTitle> <CardDescription> Counts from videos uploaded via this web interface. Used for accuracy validation. </CardDescription> </div>
+                <div className="flex-grow"> <CardTitle className="text-2xl flex items-center gap-2"> <ListChecks className="text-primary" /> 処理履歴 (Web UI アップロード) </CardTitle> <CardDescription> このウェブインターフェース経由でアップロードされた動画のカウント。精度検証用。 </CardDescription> </div>
               </CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader> <TableRow> <TableHead>Video File</TableHead> <TableHead className="text-center">Direction</TableHead> <TableHead className="text-center">Visitors</TableHead> <TableHead>Recording Started</TableHead> <TableHead className="text-right">Processed On</TableHead> </TableRow> </TableHeader>
+                  <TableHeader> <TableRow> <TableHead>動画ファイル</TableHead> <TableHead className="text-center">方向</TableHead> <TableHead className="text-center">訪問者数</TableHead> <TableHead>録画開始日時</TableHead> <TableHead className="text-right">処理日時</TableHead> </TableRow> </TableHeader>
                   <TableBody>
                     {uiHistory.map((entry) => (
                       <TableRow key={entry.id}>
