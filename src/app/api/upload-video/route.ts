@@ -22,6 +22,8 @@ const ApiJsonInputSchema = z.object({
   direction: DirectionEnum,
   recordingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "recordingDate must be in YYYY-MM-DD format.").optional(),
   recordingTime: z.string().regex(/^\d{2}:\d{2}$/, "recordingTime must be in HH:MM format.").optional(),
+  uploadSource: z.enum(['ui', 'api']).optional().default('api'),
+  locationName: z.string().optional().default('N/A'),
 });
 
 export async function POST(request: NextRequest) {
@@ -33,6 +35,8 @@ export async function POST(request: NextRequest) {
     let recordingDateStr: string | undefined;
     let recordingTimeStr: string | undefined;
     let recordingStartDateTime: Date | undefined;
+    let uploadSource: 'ui' | 'api' = 'api'; // Default to 'api'
+    let locationName: string = 'N/A'; // Default location name
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -40,6 +44,8 @@ export async function POST(request: NextRequest) {
       const directionString = formData.get('direction') as string | null;
       const recDate = formData.get('recordingDate') as string | null;
       const recTime = formData.get('recordingTime') as string | null;
+      const sourceString = formData.get('uploadSource') as string | null;
+      const locNameString = formData.get('locationName') as string | null;
 
       if (!file) {
         return NextResponse.json({ error: 'No video file found in form data. Please use field name "videoFile".' }, { status: 400 });
@@ -57,6 +63,9 @@ export async function POST(request: NextRequest) {
       videoFileName = file.name;
       if (recDate) recordingDateStr = recDate;
       if (recTime) recordingTimeStr = recTime;
+      if (sourceString === 'ui') uploadSource = 'ui';
+      if (locNameString) locationName = locNameString;
+
 
       let mimeType = file.type;
       const fieldNameKeys = Array.from(formData.keys()) as string[];
@@ -92,6 +101,8 @@ export async function POST(request: NextRequest) {
       direction = parsedBody.data.direction;
       if (parsedBody.data.recordingDate) recordingDateStr = parsedBody.data.recordingDate;
       if (parsedBody.data.recordingTime) recordingTimeStr = parsedBody.data.recordingTime;
+      uploadSource = parsedBody.data.uploadSource || 'api';
+      locationName = parsedBody.data.locationName || 'N/A';
 
     } else {
       return NextResponse.json({ error: 'Unsupported Content-Type. Please use multipart/form-data or application/json.' }, { status: 415 });
@@ -107,7 +118,12 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn(`Could not parse recordingDate '${recordingDateStr}' and recordingTime '${recordingTimeStr}' into a valid date.`);
       }
+    } else if (!recordingDateStr && !recordingTimeStr) {
+        // If neither date nor time is provided, attempt to use current datetime as fallback if explicitly needed for a UI upload with no filename parsing.
+        // For API uploads, it's assumed filename parsing or explicit fallback is handled by client/script or it's okay to be null.
+        // The current behavior is to allow null recordingStartDateTime if not provided or parsed.
     }
+
 
     const processingTimestamp = new Date();
 
@@ -119,15 +135,19 @@ export async function POST(request: NextRequest) {
     const result: CountVisitorsOutput = await countVisitors(input);
     
     // Save to Firestore
+    let docRefId: string | undefined = undefined;
     try {
-      await addDoc(collection(db, "visitor_logs"), {
+      const docRef = await addDoc(collection(db, "visitor_logs"), {
         visitorCount: result.visitorCount,
         countedDirection: result.countedDirection,
         videoFileName: videoFileName || 'N/A',
         recordingStartDateTime: recordingStartDateTime ? Timestamp.fromDate(recordingStartDateTime) : null,
         processingTimestamp: Timestamp.fromDate(processingTimestamp),
-        rawVideoDataUriProvided: videoDataUri.length > 200 ? videoDataUri.substring(0,100) + "... (truncated)" : videoDataUri, // For logging, avoid storing full data URI if too large
+        rawVideoDataUriProvided: videoDataUri.length > 200 ? videoDataUri.substring(0,100) + "... (truncated)" : videoDataUri,
+        uploadSource: uploadSource,
+        locationName: locationName,
       });
+      docRefId = docRef.id;
     } catch (dbError) {
       console.error("--- Firestore Save Error ---");
       console.error(dbError);
@@ -135,9 +155,12 @@ export async function POST(request: NextRequest) {
     }
 
     const responsePayload: any = {
+      id: docRefId, // Include Firestore document ID in response
       ...result,
       videoFileName,
       processingTimestamp: processingTimestamp.toISOString(),
+      uploadSource: uploadSource,
+      locationName: locationName,
     };
 
     if (recordingStartDateTime) {
@@ -153,10 +176,12 @@ export async function POST(request: NextRequest) {
 
     let errorMessage = 'Failed to process video. An internal server error occurred.';
     let errorDetails: any = 'See server logs for more details.';
+    let statusCode = 500;
 
     if (error instanceof z.ZodError) {
         errorMessage = 'Invalid request body format.';
         errorDetails = error.format();
+        statusCode = 400;
         console.error('Error Type: ZodError');
     } else {
         if (error.message) {
@@ -168,15 +193,15 @@ export async function POST(request: NextRequest) {
         if (error.cause) {
             console.error('Error Cause:', error.cause);
         }
-        errorDetails = String(error);
+        errorDetails = String(error); // Keep it simple for non-Zod errors
     }
     
     console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${error.message || 'N/A'}`);
 
     return NextResponse.json({ 
-        error: 'Failed to process video. An internal server error occurred.',
+        error: 'Failed to process video.',
         messageFromServer: errorMessage,
         details: errorDetails
-    }, { status: 500 });
+    }, { status: statusCode });
   }
 }
