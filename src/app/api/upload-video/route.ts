@@ -1,22 +1,21 @@
 
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+
+console.log("--- MODULE LEVEL LOG: /api/upload-video/route.ts loaded ---");
+process.stdout.write("--- MODULE LEVEL STDOUT: /api/upload-video/route.ts loaded ---\n");
 
 export async function POST(request: NextRequest) {
-  console.log("--- SIMPLIFIED /api/upload-video POST request received ---");
+  console.log("--- MINIMAL POST HANDLER: /api/upload-video received request ---");
+  process.stdout.write("--- MINIMAL POST STDOUT: /api/upload-video received request ---\n");
+
   try {
     const requestTimestamp = new Date().toISOString();
-    console.log(`Simplified handler executed at: ${requestTimestamp}`);
-
-    // Log request headers (optional, for more context if needed)
-    // const headersObject: Record<string, string> = {};
-    // request.headers.forEach((value, key) => {
-    //   headersObject[key] = value;
-    // });
-    // console.log("Request Headers:", JSON.stringify(headersObject, null, 2));
-
-    // Attempt to read the body if it's form-data, just to see if it errors
-    let bodyContentDescription = "No body processed or body is not FormData.";
+    let bodyContentDescription = "No body processed or body not FormData/JSON.";
     const contentType = request.headers.get('content-type') || '';
+
+    console.log(`Content-Type: ${contentType}`);
+    process.stdout.write(`Content-Type: ${contentType}\n`);
+
     if (contentType.includes('multipart/form-data')) {
       try {
         const formData = await request.formData();
@@ -26,44 +25,53 @@ export async function POST(request: NextRequest) {
         } else {
           bodyContentDescription = "FormData processed, videoFile field NOT found.";
         }
-        console.log(bodyContentDescription);
       } catch (e: any) {
-        console.error("Error processing FormData in simplified route:", e.message);
+        console.error("Error processing FormData in minimal route:", e.message);
+        process.stderr.write(`Error processing FormData: ${e.message}\n`);
         bodyContentDescription = `Error processing FormData: ${e.message}`;
       }
     } else if (contentType.includes('application/json')) {
-         try {
-            const jsonBody = await request.json();
-            console.log("JSON body received:", jsonBody);
-            bodyContentDescription = "JSON body processed.";
-         } catch (e: any) {
-            console.error("Error processing JSON body in simplified route:", e.message);
-            bodyContentDescription = `Error processing JSON body: ${e.message}`;
-         }
+       try {
+          const jsonBody = await request.json();
+          console.log("Minimal JSON body received:", jsonBody);
+          process.stdout.write(`Minimal JSON body received: ${JSON.stringify(jsonBody)}\n`);
+          bodyContentDescription = "Minimal JSON body processed.";
+       } catch (e: any) {
+          console.error("Error processing JSON body in minimal route:", e.message);
+          process.stderr.write(`Error processing JSON body: ${e.message}\n`);
+          bodyContentDescription = `Error processing JSON body: ${e.message}`;
+       }
     }
 
+    console.log(`Body info: ${bodyContentDescription}`);
+    process.stdout.write(`Body info: ${bodyContentDescription}\n`);
 
     return NextResponse.json({
-      message: "Simplified API route processed successfully!",
+      message: "Minimal API route processed successfully!",
       timestamp: requestTimestamp,
       bodyInfo: bodyContentDescription,
-      status: "ok_simplified"
+      status: "ok_minimal"
     }, { status: 200 });
 
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
-    console.error(`--- SIMPLIFIED API Error at ${errorTimestamp} ---`);
+    console.error(`--- MINIMAL API Error at ${errorTimestamp} ---`);
+    process.stderr.write(`--- MINIMAL API Error at ${errorTimestamp} ---\n`);
     if (error instanceof Error) {
         console.error("Error Name:", error.name);
         console.error("Error Message:", error.message);
         console.error("Error Stack:", error.stack);
+        process.stderr.write(`Error Name: ${error.name}, Message: ${error.message}\n`);
     } else {
         console.error("Raw Error Object/Value:", error);
+        process.stderr.write(`Raw Error: ${JSON.stringify(error)}\n`);
     }
     return NextResponse.json({
-        error: 'Simplified API failed to process.',
+        error: 'Minimal API failed to process.',
         messageFromServer: error instanceof Error ? error.message : 'Unknown error',
-        details: 'See server logs for more details from simplified route.'
+        details: 'See server logs for more details from minimal route.'
     }, { status: 500 });
   }
 }
+
+export const dynamic = 'force-dynamic';
