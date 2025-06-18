@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Loader2, Users, CalendarDays, UploadCloud, AlertCircle, CheckCircle2, ListChecks, Download, Video, Files, MapPin, ArrowRightLeft } from "lucide-react";
 import { type Direction } from "@/ai/types";
-import { format, parseISO, isValid as isValidDate, parse as dateParseFn } from "date-fns";
+import { format, parseISO, isValid as isValidDateFn, parse as dateParseFn } from "date-fns"; // Renamed isValidDate to isValidDateFn to avoid conflict
 import Header from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -61,76 +61,99 @@ export default function CountCamPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    console.log("Setting up Firestore listener for visitor_logs...");
+    if (!db) {
+      console.error("Firestore (db) instance is not available in page.tsx. History will not be loaded.");
+      setError("Database connection not available. Please check Firebase setup.");
+      toast({
+        variant: "destructive",
+        title: "Database Error",
+        description: "Could not connect to the database to load history.",
+      });
+      return;
+    }
+
     const q = query(collection(db, "visitor_logs"), orderBy("processingTimestamp", "desc"));
-    console.log("Setting up Firestore listener...");
+    
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedHistory: StatisticsData[] = [];
       console.log(`Firestore snapshot received. Document count: ${querySnapshot.size}`);
       querySnapshot.forEach((doc: DocumentData) => {
         const data = doc.data();
-        // console.log(`Doc ID: ${doc.id}, Data:`, data); // Log individual document data
+        
+        let recordingStartDateTime = null;
+        if (data.recordingStartDateTime instanceof Timestamp) {
+            recordingStartDateTime = data.recordingStartDateTime.toDate();
+        } else if (data.recordingStartDateTime && typeof data.recordingStartDateTime === 'string') {
+            const parsedDate = parseISO(data.recordingStartDateTime);
+            if (isValidDateFn(parsedDate)) recordingStartDateTime = parsedDate;
+        } else if (data.recordingStartDateTime && typeof data.recordingStartDateTime.seconds === 'number' && typeof data.recordingStartDateTime.nanoseconds === 'number') {
+            // Handle cases where it might be a plain object from Firestore cache or SSR
+            recordingStartDateTime = new Timestamp(data.recordingStartDateTime.seconds, data.recordingStartDateTime.nanoseconds).toDate();
+        }
 
-        const recordingStartDateTime = data.recordingStartDateTime instanceof Timestamp
-                                       ? data.recordingStartDateTime.toDate()
-                                       : (data.recordingStartDateTime && typeof data.recordingStartDateTime === 'string' ? parseISO(data.recordingStartDateTime) : null);
 
-        const processingTimestamp = data.processingTimestamp instanceof Timestamp
-                                  ? data.processingTimestamp.toDate()
-                                  : (data.processingTimestamp && typeof data.processingTimestamp === 'string' ? parseISO(data.processingTimestamp) : new Date());
+        let processingTimestampVal = new Date(); // Default to now if parsing fails
+        if (data.processingTimestamp instanceof Timestamp) {
+            processingTimestampVal = data.processingTimestamp.toDate();
+        } else if (data.processingTimestamp && typeof data.processingTimestamp === 'string') {
+            const parsedTimestamp = parseISO(data.processingTimestamp);
+            if (isValidDateFn(parsedTimestamp)) processingTimestampVal = parsedTimestamp;
+        } else if (data.processingTimestamp && typeof data.processingTimestamp.seconds === 'number' && typeof data.processingTimestamp.nanoseconds === 'number') {
+            processingTimestampVal = new Timestamp(data.processingTimestamp.seconds, data.processingTimestamp.nanoseconds).toDate();
+        }
+
 
         const uploadSource = data.uploadSource === 'ui' || data.uploadSource === 'api' ? data.uploadSource : 'api';
-
 
         fetchedHistory.push({
           id: doc.id,
           visitorCount: data.visitorCount,
           countedDirection: data.countedDirection,
           videoFileName: data.videoFileName || 'N/A',
-          recordingStartDateTime: recordingStartDateTime && isValidDate(recordingStartDateTime) ? recordingStartDateTime : null,
-          timestamp: isValidDate(processingTimestamp) ? processingTimestamp : new Date(),
+          recordingStartDateTime: recordingStartDateTime && isValidDateFn(recordingStartDateTime) ? recordingStartDateTime : null,
+          timestamp: isValidDateFn(processingTimestampVal) ? processingTimestampVal : new Date(),
           uploadSource: uploadSource,
           locationName: data.locationName || 'N/A',
         });
       });
-      console.log("Fetched history from Firestore:", fetchedHistory);
+      console.log("Fetched history from Firestore (page.tsx):", fetchedHistory);
       setAllHistory(fetchedHistory);
     }, (err) => {
-      console.error("Error fetching history from Firestore:", err);
+      console.error("Error fetching history from Firestore (page.tsx):", err);
       setError("Failed to load processing history from the database.");
       toast({
         variant: "destructive",
         title: "Database Error",
-        description: "Could not load processing history from the database.",
+        description: "Could not load processing history from the database. Check console for details.",
       });
     });
 
     return () => {
-      console.log("Cleaning up Firestore listener.");
+      console.log("Cleaning up Firestore listener (page.tsx).");
       unsubscribe();
     }
-  }, []);
+  }, []); // Empty dependency array: run once on mount
 
   const parseDateTimeFromFilename = (filename: string): { date?: string; time?: string } => {
     const patterns = [
-      /(?<year>\d{4})[-_]?(\d{2})[-_]?(\d{2})[-_ ]?(\d{2})[-_:]?(\d{2})[-_:]?(\d{2})/,
-      /(?<year>\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/,
-      /(?<year>\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/,
+      /(?<year>\d{4})[-_]?(\d{2})[-_]?(\d{2})[-_ ]?(\d{2})[-_:]?(\d{2})[-_:]?(\d{2})/, // YYYYMMDDHHMMSS or with separators
+      /(?<year>\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, // YYYYMMDD_HHMMSS
+      /(?<year>\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/, // YYYY-MM-DD_HH-MM-SS
     ];
 
     for (const pattern of patterns) {
         const match = filename.match(pattern);
         if (match && match.groups) {
-            // Destructure carefully, as not all groups might be present or named consistently if patterns change.
             const year = match.groups['year'];
-            const month = match.groups['2'] || match.groups['month']; // Handle different capturing group names/indices
-            const day = match.groups['3'] || match.groups['day'];
-            const hour = match.groups['4'] || match.groups['hour'];
-            const minute = match.groups['5'] || match.groups['minute'];
-            // Seconds (match.groups['6'] or match.groups['second']) are parsed but not strictly used for yyyy-MM-dd HH:mm format.
-
+            const month = match[2]; // Use index as group names might vary if pattern has unnamed groups
+            const day = match[3];
+            const hour = match[4];
+            const minute = match[5];
+            
             if (year && month && day && hour && minute) {
                 const parsedDate = dateParseFn(`${year}-${month}-${day} ${hour}:${minute}`, 'yyyy-MM-dd HH:mm', new Date());
-                if (isValidDate(parsedDate)) {
+                if (isValidDateFn(parsedDate)) {
                     return {
                         date: format(parsedDate, "yyyy-MM-dd"),
                         time: format(parsedDate, "HH:mm"),
@@ -183,7 +206,7 @@ export default function CountCamPage() {
     formData.append("direction", selectedDirection);
     formData.append("recordingDate", recordingDateToUse);
     formData.append("recordingTime", recordingTimeToUse);
-    formData.append("uploadSource", "ui");
+    formData.append("uploadSource", "ui"); // Explicitly 'ui' for UI uploads
     formData.append("locationName", locationNameToUse || "N/A");
 
 
@@ -203,13 +226,13 @@ export default function CountCamPage() {
       const apiProcessingTimestamp = resultData.processingTimestamp ? parseISO(resultData.processingTimestamp) : new Date();
 
       const newEntry: StatisticsData = {
-        id: resultData.id || Date.now().toString(),
+        id: resultData.id || Date.now().toString(), // Fallback ID if API doesn't return one (e.g., Firestore save failed)
         visitorCount: resultData.visitorCount,
         countedDirection: resultData.countedDirection,
         videoFileName: resultData.videoFileName || batchFile.file.name,
-        recordingStartDateTime: apiRecordingStartDateTime && isValidDate(apiRecordingStartDateTime) ? apiRecordingStartDateTime : null,
-        timestamp: isValidDate(apiProcessingTimestamp) ? apiProcessingTimestamp : new Date(),
-        uploadSource: 'ui', // Explicitly 'ui' for this function
+        recordingStartDateTime: apiRecordingStartDateTime && isValidDateFn(apiRecordingStartDateTime) ? apiRecordingStartDateTime : null,
+        timestamp: isValidDateFn(apiProcessingTimestamp) ? apiProcessingTimestamp : new Date(),
+        uploadSource: 'ui', 
         locationName: resultData.locationName || "N/A",
       };
       setLastProcessedResult(newEntry); 
@@ -268,6 +291,7 @@ export default function CountCamPage() {
     if (fileInputRef.current) { 
       fileInputRef.current.value = "";
     }
+    setFormLocationName(""); // Clear location name after batch submit
     toast({
         title: "バッチ処理完了",
         description: `${successCount} ファイル成功, ${errorCount} ファイル失敗。結果は保存されました。`,
@@ -293,24 +317,25 @@ export default function CountCamPage() {
     }
     
     const csvHeader = ["録画日", "録画開始時刻", "地点名", "入場者数"];
-    const csvRows = [csvHeader.join(",")];
+    const csvRows = ["\uFEFF" + csvHeader.join(",")]; // Add BOM for Excel compatibility
 
+    // Sort API history by recording start date/time before generating CSV
     apiHistory.sort((a, b) => {
         if (a.recordingStartDateTime && b.recordingStartDateTime) {
             return a.recordingStartDateTime.getTime() - b.recordingStartDateTime.getTime();
         } else if (a.recordingStartDateTime) { 
-            return -1;
+            return -1; // Entries with dates come first
         } else if (b.recordingStartDateTime) { 
-            return 1;
+            return 1;  // Entries without dates come after
         }
-        return 0; 
+        return 0; // Keep original order if both have no date (or same date)
     });
 
     for (const entry of apiHistory) {
       const recDate = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "yyyy-MM-dd") : 'N/A';
       const recTime = entry.recordingStartDateTime ? format(entry.recordingStartDateTime, "HH:mm") : 'N/A';
       const location = entry.locationName || 'N/A';
-      const escapeCSV = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+      const escapeCSV = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`; // Handle quotes in values
       
       csvRows.push([
         escapeCSV(recDate),
@@ -320,7 +345,7 @@ export default function CountCamPage() {
       ].join(","));
     }
 
-    const csvString = "\uFEFF" + csvRows.join("\n"); 
+    const csvString = csvRows.join("\n"); 
     const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -335,12 +360,14 @@ export default function CountCamPage() {
     toast({ title: "APIデータCSVダウンロード完了", description: "APIアップロード (入場者) のレポートがダウンロードされました。" });
   };
 
-  // Debug log for button state
-  const apiDataForCSV = allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering');
-  console.log("Current allHistory:", allHistory);
-  console.log("Filtered API data for CSV button:", apiDataForCSV);
-  console.log("Is API CSV button disabled?", isBatchProcessing || apiDataForCSV.length === 0);
-
+  const apiDataForCSV = useMemo(() => {
+    return allHistory.filter(entry => entry.uploadSource === 'api' && entry.countedDirection === 'entering');
+  }, [allHistory]);
+  
+  // Debug logs for button state
+  // console.log("Current allHistory (page.tsx render):", allHistory);
+  // console.log("Filtered API data for CSV button (page.tsx render):", apiDataForCSV);
+  // console.log("Is API CSV button disabled? (page.tsx render):", isBatchProcessing || apiDataForCSV.length === 0);
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -355,13 +382,13 @@ export default function CountCamPage() {
               </CardTitle>
               <CardDescription>
                 動画ファイルと関連情報を入力してください。結果は中央で保存され、UIでの精度検証に使用されます。
-                録画日時はファイル名から解析されるか、フォールバック値が使用されます。
+                録画日時はファイル名から解析されるか、フォールバック値が使用されます。地点名は任意です。
               </CardDescription>
             </CardHeader>
             <form onSubmit={handleBatchSubmit}>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="videoFile">動画ファイル</Label>
+                  <Label htmlFor="videoFile">動画ファイル (複数選択可)</Label>
                   <Input id="videoFile" type="file" accept="video/*" multiple onChange={handleFileChange} disabled={processing || isBatchProcessing} ref={fileInputRef} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
                   {selectedFiles.length > 0 && !error && ( <div className="text-sm text-muted-foreground flex items-center gap-2 p-2 border rounded-md bg-secondary/50"> <Files className="w-5 h-5 text-primary" /> <span>選択中: {selectedFiles.length} ファイル</span> </div> )}
                   {selectedFiles.map((batchFile, index) => ( <div key={index} className="text-xs text-muted-foreground ml-2"> - {batchFile.file.name} {batchFile.parsedDate && batchFile.parsedTime && ` (解析日時: ${batchFile.parsedDate} ${batchFile.parsedTime})`} </div> ))}
@@ -404,7 +431,7 @@ export default function CountCamPage() {
                 {lastProcessedResult.locationName && lastProcessedResult.locationName !== 'N/A' && (
                   <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <MapPin className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">地点名:</span> </div> <span className="font-semibold text-primary">{lastProcessedResult.locationName}</span> </div>
                 )}
-                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Video className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">録画開始日時:</span> </div> <span className="font-semibold text-primary">{lastProcessedResult.recordingStartDateTime && isValidDate(lastProcessedResult.recordingStartDateTime) ? format(lastProcessedResult.recordingStartDateTime, "PP p") : 'N/A'}</span> </div>
+                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <Video className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">録画開始日時:</span> </div> <span className="font-semibold text-primary">{lastProcessedResult.recordingStartDateTime && isValidDateFn(lastProcessedResult.recordingStartDateTime) ? format(lastProcessedResult.recordingStartDateTime, "PP p") : 'N/A'}</span> </div>
                 <div className="flex items-center justify-between p-3 bg-background/70 rounded-md shadow-sm"> <div className="flex items-center gap-3"> <CalendarDays className="h-6 w-6 text-primary" /> <span className="font-medium text-foreground">処理日時:</span> </div> <span className="font-semibold text-primary">{format(lastProcessedResult.timestamp, "PP p")}</span> </div>
               </CardContent>
             </Card>
@@ -451,7 +478,7 @@ export default function CountCamPage() {
                         <TableCell className="truncate max-w-[100px] sm:max-w-[120px]">{entry.locationName}</TableCell>
                         <TableCell className="text-center">{getDirectionLabel(entry.countedDirection)}</TableCell>
                         <TableCell className="text-center font-semibold text-accent">{entry.visitorCount}</TableCell>
-                        <TableCell>{entry.recordingStartDateTime && isValidDate(entry.recordingStartDateTime) ? format(entry.recordingStartDateTime, "PP p") : 'N/A'}</TableCell>
+                        <TableCell>{entry.recordingStartDateTime && isValidDateFn(entry.recordingStartDateTime) ? format(entry.recordingStartDateTime, "PP p") : 'N/A'}</TableCell>
                         <TableCell className="text-right">{format(entry.timestamp, "PP p")}</TableCell>
                       </TableRow>
                     ))}
@@ -468,4 +495,3 @@ export default function CountCamPage() {
     </div>
   );
 }
-
