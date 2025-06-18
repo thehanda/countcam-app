@@ -4,6 +4,8 @@ import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from
 import { DirectionEnum, type Direction } from '@/ai/types';
 import { z } from 'zod';
 import { parse as dateParse, isValid as isValidDate } from 'date-fns';
+import { db } from '@/lib/firebase'; // Firestore instance
+import { collection, addDoc, Timestamp } from 'firebase/firestore';
 
 // Helper function to convert ArrayBuffer to Base64 string using Node.js Buffer
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -39,7 +41,6 @@ export async function POST(request: NextRequest) {
       const recDate = formData.get('recordingDate') as string | null;
       const recTime = formData.get('recordingTime') as string | null;
 
-
       if (!file) {
         return NextResponse.json({ error: 'No video file found in form data. Please use field name "videoFile".' }, { status: 400 });
       }
@@ -57,7 +58,6 @@ export async function POST(request: NextRequest) {
       if (recDate) recordingDateStr = recDate;
       if (recTime) recordingTimeStr = recTime;
 
-
       let mimeType = file.type;
       const fieldNameKeys = Array.from(formData.keys()) as string[];
       const videoFileFieldKey = fieldNameKeys.find(key => key.startsWith('videoFile') && key.includes(';type='));
@@ -68,7 +68,6 @@ export async function POST(request: NextRequest) {
               mimeType = extractedType;
           }
       }
-
 
       if (!mimeType || !mimeType.startsWith('video/')) {
          return NextResponse.json({ error: 'Uploaded file is not a video or MIME type could not be determined as video. Ensure "type" is set for "videoFile" field if using curl (e.g., videoFile=@file.mp4;type=video/mp4) or that the browser sends a video type.' }, { status: 400 });
@@ -110,6 +109,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const processingTimestamp = new Date();
 
     const input: CountVisitorsInput = {
       videoDataUri: videoDataUri,
@@ -118,10 +118,26 @@ export async function POST(request: NextRequest) {
 
     const result: CountVisitorsOutput = await countVisitors(input);
     
+    // Save to Firestore
+    try {
+      await addDoc(collection(db, "visitor_logs"), {
+        visitorCount: result.visitorCount,
+        countedDirection: result.countedDirection,
+        videoFileName: videoFileName || 'N/A',
+        recordingStartDateTime: recordingStartDateTime ? Timestamp.fromDate(recordingStartDateTime) : null,
+        processingTimestamp: Timestamp.fromDate(processingTimestamp),
+        rawVideoDataUriProvided: videoDataUri.length > 200 ? videoDataUri.substring(0,100) + "... (truncated)" : videoDataUri, // For logging, avoid storing full data URI if too large
+      });
+    } catch (dbError) {
+      console.error("--- Firestore Save Error ---");
+      console.error(dbError);
+      // Continue even if DB save fails, but log it. Client will still get AI result.
+    }
+
     const responsePayload: any = {
       ...result,
       videoFileName,
-      processingTimestamp: new Date().toISOString(),
+      processingTimestamp: processingTimestamp.toISOString(),
     };
 
     if (recordingStartDateTime) {
@@ -152,15 +168,15 @@ export async function POST(request: NextRequest) {
         if (error.cause) {
             console.error('Error Cause:', error.cause);
         }
-        errorDetails = String(error); // Keep it simple for client, more details in server log
+        errorDetails = String(error);
     }
     
     console.error(`Detailed API Error Summary: Type - ${typeof error}, Message - ${error.message || 'N/A'}`);
 
     return NextResponse.json({ 
-        error: 'Failed to process video. An internal server error occurred.', // Generic message to client
-        messageFromServer: errorMessage, // Potentially more specific message
-        details: errorDetails // Only include ZodError.format() or string representation
+        error: 'Failed to process video. An internal server error occurred.',
+        messageFromServer: errorMessage,
+        details: errorDetails
     }, { status: 500 });
   }
 }
