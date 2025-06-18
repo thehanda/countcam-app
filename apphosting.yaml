@@ -36,17 +36,6 @@ runConfig:
 #       - key: Access-Control-Allow-Credentials
 #         value: 'true'
 
-env:
-  - variable: GOOGLE_API_KEY
-    # IMPORTANT: Replace the following 'secret' value with the actual Resource ID of the secret you created in Google Cloud Secret Manager.
-    # It should look like: projects/YOUR_PROJECT_NUMBER/secrets/YOUR_SECRET_NAME/versions/latest
-    # For example: projects/123456789012/secrets/google-ai-api-key/versions/latest
-    secret: "projects/YOUR_PROJECT_NUMBER/secrets/YOUR_SECRET_NAME/versions/latest"
-  # You can add other environment variables here if needed, for example:
-  # - variable: FIREBASE_API_KEY
-  #   value: "YOUR_FIREBASE_API_KEY_IF_NEEDED_BY_APP_LOGIC" # Only if your application code specifically needs it server-side
-  - variable: GENKIT_ENV
-    value: "prod"
 # 環境変数を設定
 env:
   # GOOGLE_API_KEY という名前の環境変数として、アプリ内で利用できるようにする
