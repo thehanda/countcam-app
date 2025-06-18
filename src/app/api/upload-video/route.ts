@@ -4,8 +4,8 @@ import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from
 import { DirectionEnum, type Direction } from '@/ai/types';
 import { z } from 'zod';
 import { parse as dateParse, isValid as isValidDate } from 'date-fns';
-import { db } from '@/lib/firebase'; // Firestore instance
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { dbAdmin } from '@/lib/firebaseAdmin'; // Use Firebase Admin SDK
+import { Timestamp } from 'firebase-admin/firestore'; // Use Timestamp from Admin SDK
 
 // Helper function to convert ArrayBuffer to Base64 string using Node.js Buffer
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -71,9 +71,16 @@ export async function POST(request: NextRequest) {
       
       if (sourceString === 'ui') uploadSource = 'ui';
       else if (sourceString === 'api') uploadSource = 'api';
-      else if (sourceString) console.warn(`Received unknown uploadSource in FormData: '${sourceString}'. Defaulting to 'api'.`);
+      else if (sourceString) {
+         console.warn(`Received unknown uploadSource in FormData: '${sourceString}'. Defaulting to 'api'.`);
+         uploadSource = 'api'; // Default to api if unknown
+      } else {
+        uploadSource = 'api'; // Default if not provided
+      }
       
       if (locNameString) locationName = locNameString;
+      else locationName = 'N/A';
+
       console.log(`Extracted from FormData: videoFileName=${videoFileName}, direction=${direction}, recordingDate=${recordingDateStr}, recordingTime=${recordingTimeStr}, uploadSource=${uploadSource}, locationName=${locationName}`);
 
       let mimeType = file.type;
@@ -115,7 +122,7 @@ export async function POST(request: NextRequest) {
       direction = parsedBody.data.direction;
       if (parsedBody.data.recordingDate) recordingDateStr = parsedBody.data.recordingDate;
       if (parsedBody.data.recordingTime) recordingTimeStr = parsedBody.data.recordingTime;
-      uploadSource = parsedBody.data.uploadSource || 'api'; // Default to 'api' if not provided
+      uploadSource = parsedBody.data.uploadSource || 'api'; 
       locationName = parsedBody.data.locationName || 'N/A';
       console.log(`Extracted from JSON: direction=${direction}, recordingDate=${recordingDateStr}, recordingTime=${recordingTimeStr}, uploadSource=${uploadSource}, locationName=${locationName}`);
 
@@ -161,25 +168,26 @@ export async function POST(request: NextRequest) {
       uploadSource: uploadSource,
       locationName: locationName,
     };
-    console.log("Attempting to save to Firestore. Data:", dataToSave);
+    
+    console.log("Attempting to save to Firestore with Admin SDK. Data:", dataToSave);
 
     try {
-      if (!db) {
-        console.error("Firestore db instance is not available. Check firebase.ts initialization.");
-        throw new Error("Firestore database instance is not initialized.");
+      if (!dbAdmin) { // Check if Admin Firestore instance is available
+        console.error("Firebase Admin Firestore instance (dbAdmin) is not available. Check firebaseAdmin.ts initialization.");
+        throw new Error("Firebase Admin Firestore database instance is not initialized.");
       }
-      const docRef = await addDoc(collection(db, "visitor_logs"), dataToSave);
+      // Use Admin SDK for Firestore operations
+      const docRef = await dbAdmin.collection("visitor_logs").add(dataToSave);
       docRefId = docRef.id;
-      console.log("Successfully saved to Firestore. Document ID:", docRefId);
+      console.log("Successfully saved to Firestore with Admin SDK. Document ID:", docRefId);
     } catch (dbError: any) {
-      console.error("--- Firestore Save Error ---");
+      console.error("--- Firestore Save Error (Admin SDK) ---");
       console.error("Failed to save data to Firestore. Error Name:", dbError.name);
       console.error("Error Message:", dbError.message);
-      console.error("Error Code:", dbError.code); // Firestore specific error code
+      console.error("Error Code:", dbError.code); // Firestore specific error code for Admin SDK
       console.error("Error Stack:", dbError.stack);
       if (dbError.cause) console.error("Cause:", dbError.cause);
       // Continue even if DB save fails for now, but log it. Client will still get AI result.
-      // Consider returning an error or partial success if DB save is critical.
     }
 
     const responsePayload: any = {
