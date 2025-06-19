@@ -2,7 +2,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 // These console.logs at the module level should appear when the module is loaded by Next.js
-// Adding a unique marker to ensure this version is deployed.
+// Adding a unique marker to ensure this version is deployed via GitHub.
 console.log("--- MODULE LEVEL LOG: /api/upload-video/route.ts loaded (GitHub Deployed Version) ---");
 process.stdout.write("--- MODULE LEVEL STDOUT: /api/upload-video/route.ts loaded (GitHub Deployed Version) ---\n");
 
