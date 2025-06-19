@@ -19,3 +19,5 @@ env:
     secret: 'projects/countcam-z8573/secrets/countcam-google-api-key/versions/latest'
   - variable: GENKIT_ENV
     value: "prod"
+  - variable: GCLOUD_PROJECT
+    value: "countcam-z8573" # <--- この行を追加しました
