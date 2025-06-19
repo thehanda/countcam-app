@@ -2,11 +2,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 // These console.logs at the module level should appear when the module is loaded by Next.js
+// Adding a unique marker to ensure this version is deployed.
 console.log("--- MODULE LEVEL LOG: /api/upload-video/route.ts loaded (GitHub Deployed Version) ---");
 process.stdout.write("--- MODULE LEVEL STDOUT: /api/upload-video/route.ts loaded (GitHub Deployed Version) ---\n");
 
 export async function POST(request: NextRequest) {
   const handlerExecutionTime = new Date().toISOString();
+  // Adding a unique marker to ensure this version's handler is executed.
   console.log(`--- MINIMAL POST HANDLER (GitHub Deployed Version): /api/upload-video received request at ${handlerExecutionTime} ---`);
   process.stdout.write(`--- MINIMAL POST STDOUT (GitHub Deployed Version): /api/upload-video received request at ${handlerExecutionTime} ---\n`);
 

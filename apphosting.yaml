@@ -1,8 +1,8 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
+# Force rebuild from GitHub (via terminal commit) - UNIQUE STUDIO PUBLISH MARKER - 2024-06-19T02:00:00Z # Updated for new attempt
 # Force rebuild from Firebase Studio (or Git) - UNIQUE STUDIO PUBLISH MARKER - 2024-06-19T00:00:00Z
-# Force rebuild from GitHub (via terminal commit) - 2024-06-19T01:00:00Z # Updated for new attempt
 
 runConfig:
   # Increase this value if you'd like to automatically spin up
