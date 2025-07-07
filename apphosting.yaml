@@ -1,8 +1,7 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
-# Force rebuild from GitHub (via terminal commit) - UNIQUE STUDIO PUBLISH MARKER - 2024-06-19T06:00:00Z # For GitHub path debug v3
-
+# Force a new build and rollout with a unique marker - 2024-07-11T05:00:00Z
 runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
@@ -20,4 +19,4 @@ env:
   - variable: GENKIT_ENV
     value: "prod"
   - variable: GCLOUD_PROJECT
-    value: "countcam-z8573" # <--- この行を追加しました
+    value: "countcam-z8573" # Explicitly set project ID
