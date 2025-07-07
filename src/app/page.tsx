@@ -216,10 +216,21 @@ export default function CountCamPage() {
     const formData = new FormData();
     formData.append("videoFile", batchFile.file);
     formData.append("direction", selectedDirection);
-    // Use format with seconds for time
-    const timeToUse = recordingTimeToUse.length === 5 ? `${recordingTimeToUse}:00` : recordingTimeToUse;
-    formData.append("recordingDate", recordingDateToUse);
-    formData.append("recordingTime", timeToUse);
+    
+    // --- NEW TIMESTAMP LOGIC for UI uploads ---
+    // Ensure time has seconds for consistent parsing
+    const timeToUseWithSeconds = recordingTimeToUse.length === 5 ? `${recordingTimeToUse}:00` : recordingTimeToUse;
+    // Create a date string that `new Date()` can parse as local time
+    const localDateTimeString = `${recordingDateToUse}T${timeToUseWithSeconds}`;
+    // Create a Date object; it will be in the browser's local timezone
+    const localDate = new Date(localDateTimeString);
+    // Convert to a full ISO 8601 string, which includes the timezone offset (e.g., "2023-07-12T10:30:00.000+09:00").
+    // Note: toISOString() converts to UTC 'Z'. We need to construct it manually if we want to preserve offset,
+    // but the backend `parseISO` can handle UTC 'Z' format perfectly, so we'll use the standard.
+    const isoTimestamp = localDate.toISOString(); 
+    formData.append("recordingTimestamp", isoTimestamp);
+    // --- END NEW TIMESTAMP LOGIC ---
+
     formData.append("uploadSource", "ui"); // Explicitly 'ui' for UI uploads
     formData.append("locationName", locationNameToUse || "N/A");
 
