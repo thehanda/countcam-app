@@ -1,7 +1,7 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
-# Force a new build and rollout with a unique marker - 2024-07-11T05:00:00Z
+# Force a new build and rollout with a unique marker - 2024-07-12T12:00:00Z
 runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
@@ -20,3 +20,4 @@ env:
     value: "prod"
   - variable: GCLOUD_PROJECT
     value: "countcam-z8573" # Explicitly set project ID
+
