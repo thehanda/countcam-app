@@ -4,10 +4,10 @@ import { countVisitors, type CountVisitorsInput, type CountVisitorsOutput } from
 import type { Direction } from '@/ai/types';
 import { dbAdmin } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { parse as dateParseFn, isValid as isValidDateFn, formatISO } from 'date-fns';
+import { parseISO, isValid as isValidDateFn, formatISO } from 'date-fns';
 
 // Add a new, unmistakable version marker to force redeploy and confirm it's running.
-console.log("--- MODULE LEVEL: /api/upload-video/route.ts re-loaded (v_FINAL_FIX_0711) ---");
+console.log("--- MODULE LEVEL: /api/upload-video/route.ts re-loaded (v_TIMEZONE_FIX_0712) ---");
 
 export async function POST(request: NextRequest) {
   const handlerStartTime = new Date().toISOString();
@@ -18,25 +18,23 @@ export async function POST(request: NextRequest) {
     const videoFile = formData.get('videoFile') as File | null;
     const direction = formData.get('direction') as Direction | null;
     const uploadSource = (formData.get('uploadSource') as 'ui' | 'api' | null) || 'api';
-
     const locationNameStr = formData.get('locationName') as string | null;
-    const recordingDateStr = formData.get('recordingDate') as string | null;
-    const recordingTimeStr = formData.get('recordingTime') as string | null;
+    // Get the single, standardized timestamp field from both UI and Python script
+    const recordingTimestamp = formData.get('recordingTimestamp') as string | null;
 
     console.log('[API] --- FORM DATA RECEIVED ---');
     console.log(`  - locationName: "${locationNameStr}"`);
-    console.log(`  - recordingDate: "${recordingDateStr}" (Type: ${typeof recordingDateStr})`);
-    console.log(`  - recordingTime: "${recordingTimeStr}" (Type: ${typeof recordingTimeStr})`);
     console.log(`  - direction: "${direction}"`);
+    console.log(`  - uploadSource: "${uploadSource}"`);
+    console.log(`  - recordingTimestamp: "${recordingTimestamp}"`);
     console.log('-----------------------------');
 
-    if (!videoFile || !direction || !locationNameStr || !recordingDateStr || !recordingTimeStr) {
+    if (!videoFile || !direction || !locationNameStr || !recordingTimestamp) {
         const missingFields = [
             !videoFile && "videoFile",
             !direction && "direction",
             !locationNameStr && "locationName",
-            !recordingDateStr && "recordingDate",
-            !recordingTimeStr && "recordingTime"
+            !recordingTimestamp && "recordingTimestamp"
         ].filter(Boolean).join(", ");
         
         console.error(`[API] Validation Error: Missing required fields: ${missingFields}.`);
@@ -45,23 +43,19 @@ export async function POST(request: NextRequest) {
     
     // --- ROBUST DATE/TIME PARSING ---
     let recordingStartDateTimeForFirestore: Timestamp;
-    const dateTimeString = `${recordingDateStr} ${recordingTimeStr}`;
-    const parsingFormat = 'yyyy-MM-dd HH:mm:ss'; // Correct format with seconds
-    console.log(`[API] Attempting to parse date/time string: "${dateTimeString}" with format '${parsingFormat}'`);
+    console.log(`[API] Attempting to parse ISO date/time string: "${recordingTimestamp}"`);
     
-    const parsedDate = dateParseFn(dateTimeString, parsingFormat, new Date());
+    // parseISO handles ISO 8601 strings with 'Z' (UTC) or '+-HH:mm' offsets correctly.
+    // This unifies the logic for both UI and Python script submissions.
+    const parsedDate = parseISO(recordingTimestamp);
     
     if (isValidDateFn(parsedDate)) {
         recordingStartDateTimeForFirestore = Timestamp.fromDate(parsedDate);
         console.log(`[API] Date/time parsed SUCCESSFULLY. Firestore Timestamp will be created from: ${formatISO(parsedDate)}`);
     } else {
-        // THIS IS THE CRITICAL ERROR HANDLING.
-        // If parsing fails, we MUST stop and return a specific server error.
-        const errorMessage = `CRITICAL: Date/time parsing FAILED on server. Input string from script was "${dateTimeString}", server tried format "${parsingFormat}". This is a server-side error.`;
+        const errorMessage = `CRITICAL: Date/time parsing FAILED on server. Input string from client was "${recordingTimestamp}".`;
         console.error(`[API] ${errorMessage}`);
         
-        // Return a 500 Internal Server Error because the server failed to process the data from the script.
-        // This will cause the Python script's request to fail, which is the correct behavior.
         return NextResponse.json({
             error: 'Internal Server Error: Failed to parse date/time from upload.',
             details: errorMessage
